@@ -95,6 +95,8 @@ class MainWindow(QMainWindow):
         self._ocr_engine.error_occurred.connect(self._on_ocr_error)
         self._canvas.merge_requested.connect(self._on_merge)
         self._sidebar.merge_requested.connect(self._on_merge)
+        self._canvas.delete_requested.connect(self._on_delete)
+        self._sidebar.delete_requested.connect(self._on_delete)
         self._translator.translation_ready.connect(self._on_translation_results)
         self._translator.error_occurred.connect(self._on_translation_error)
         self._sidebar.confidence_filter_changed.connect(self._on_confidence_filter_changed)
@@ -255,22 +257,19 @@ class MainWindow(QMainWindow):
 
     # ── Merge ───────────────────────────────────────────────────────
 
-    def _on_merge(self) -> None:
+    def _on_merge(self, ordered_indices: list[int]) -> None:
         if self._active_id is None:
             return
         state = self._images.get(self._active_id)
         if state is None or state.ocr_results is None:
             return
 
-        selected = state.selection_model.selected_indices
-        if len(selected) < 2:
+        if len(ordered_indices) < 2:
             return
 
         items = state.ocr_results.items
-        sel_items = sorted(
-            [item for item in items if item.index in selected],
-            key=lambda it: (it.bbox[1], it.bbox[0]),
-        )
+        items_by_index = {item.index: item for item in items}
+        sel_items = [items_by_index[idx] for idx in ordered_indices if idx in items_by_index]
 
         merged_text = " ".join(it.text for it in sel_items)
         merged_confidence = float(np.mean([it.confidence for it in sel_items]))
@@ -289,6 +288,7 @@ class MainWindow(QMainWindow):
             bbox=merged_bbox,
         )
 
+        selected = set(ordered_indices)
         first_selected = True
         new_items: list[OCRResultItem] = []
         for item in items:
@@ -321,6 +321,48 @@ class MainWindow(QMainWindow):
         )
 
         self._start_translation(self._active_id)
+
+    # ── Delete ─────────────────────────────────────────────────────
+
+    def _on_delete(self) -> None:
+        if self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is None or state.ocr_results is None:
+            return
+
+        selected = state.selection_model.selected_indices
+        if len(selected) < 1:
+            return
+
+        items = state.ocr_results.items
+        new_items = [item for item in items if item.index not in selected]
+
+        for i, item in enumerate(new_items):
+            item.index = i
+
+        new_results = OCRResults(
+            items=new_items,
+            image_width=state.ocr_results.image_width,
+            image_height=state.ocr_results.image_height,
+        )
+
+        self._reveal_timer.stop()
+        state.selection_model.clear()
+        state.ocr_results = new_results
+        self._canvas.set_ocr_results(new_results, state.selection_model, visible=True)
+        self._sidebar.set_results(new_results, state.selection_model, visible=True)
+
+        deleted_count = len(selected)
+        self._status_bar.showMessage(
+            f"Deleted {deleted_count} item{'s' if deleted_count != 1 else ''}",
+            5000,
+        )
+
+        if new_results.items:
+            self._start_translation(self._active_id)
+        else:
+            self._sidebar.hide()
 
     # ── Translation ─────────────────────────────────────────────────
 

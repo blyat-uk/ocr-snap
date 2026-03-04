@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import itertools
 import math
 import random
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -12,6 +14,8 @@ from PyQt6.QtGui import (
     QContextMenuEvent,
     QDragEnterEvent,
     QDropEvent,
+    QFont,
+    QIcon,
     QImage,
     QKeyEvent,
     QKeySequence,
@@ -51,6 +55,62 @@ _SCAN_SPEED = 0.008  # fraction of image height per tick
 _SPARKS_PER_TICK = 3
 _SPARK_MAX_AGE = 25  # ticks
 _REVEAL_FADE_FRAMES = 8  # frames for item fade-in at _FPS
+
+_SQUARE_SIZE = 14
+_SQUARE_SPACING = 4
+_PLUS_WIDTH = 12
+
+
+def _make_order_icon(indices: tuple[int, ...]) -> QIcon:
+    """Create an icon with colored squares representing the merge order."""
+    n = len(indices)
+    width = n * _SQUARE_SIZE + (n - 1) * (_SQUARE_SPACING + _PLUS_WIDTH + _SQUARE_SPACING)
+    height = _SQUARE_SIZE + 4  # small vertical padding
+    pixmap = QPixmap(width, height)
+    pixmap.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    font = QFont()
+    font.setPixelSize(10)
+    font.setBold(True)
+    painter.setFont(font)
+    y = 2
+    x = 0
+    for i, idx in enumerate(indices):
+        color = item_color(idx)
+        painter.setBrush(QBrush(color))
+        painter.setPen(QPen(color.darker(130), 1))
+        painter.drawRoundedRect(x, y, _SQUARE_SIZE, _SQUARE_SIZE, 2, 2)
+        # Draw index number centered in the square
+        painter.setPen(QPen(QColor(0, 0, 0, 180)))
+        painter.drawText(x, y, _SQUARE_SIZE, _SQUARE_SIZE, Qt.AlignmentFlag.AlignCenter, str(idx + 1))
+        x += _SQUARE_SIZE
+        if i < n - 1:
+            x += _SQUARE_SPACING
+            painter.setPen(QPen(QColor(180, 180, 180)))
+            painter.drawText(x, y, _PLUS_WIDTH, _SQUARE_SIZE, Qt.AlignmentFlag.AlignCenter, "+")
+            x += _PLUS_WIDTH + _SQUARE_SPACING
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _add_merge_permutation_actions(
+    menu: QMenu,
+    indices: list[int],
+    callback: Callable[[list[int]], None],
+) -> None:
+    """Add merge actions for all permutations of the selected indices."""
+    perms = list(itertools.permutations(indices))
+    if len(perms) == 1:
+        icon = _make_order_icon(perms[0])
+        order = list(perms[0])
+        menu.addAction(icon, "Merge", lambda o=order: callback(o))  # type: ignore[misc]
+    else:
+        merge_menu = menu.addMenu(f"Merge selected ({len(indices)})")
+        for perm in perms:
+            icon = _make_order_icon(perm)
+            order = list(perm)
+            merge_menu.addAction(icon, "", lambda o=order: callback(o))  # type: ignore[misc]
 
 
 class _Spark:
@@ -132,7 +192,8 @@ class BBoxGraphicsItem(QGraphicsRectItem):
 
 class OCRCanvas(QGraphicsView):
     image_loaded = pyqtSignal(np.ndarray, QPixmap)
-    merge_requested = pyqtSignal()
+    merge_requested = pyqtSignal(list)
+    delete_requested = pyqtSignal()
 
     def __init__(self, parent: QGraphicsView | None = None):
         super().__init__(parent)
@@ -422,11 +483,17 @@ class OCRCanvas(QGraphicsView):
             super().contextMenuEvent(event)
             return
         sel = self._selection_model.selected_indices
-        if len(sel) < 2:
+        if len(sel) < 1:
             super().contextMenuEvent(event)
             return
         menu = QMenu(self)
-        menu.addAction(f"Merge selected ({len(sel)})", self.merge_requested.emit)
+        if len(sel) == 1:
+            menu.addAction("Delete", self.delete_requested.emit)
+        else:
+            menu.addAction(f"Delete selected ({len(sel)})", self.delete_requested.emit)
+            _add_merge_permutation_actions(
+                menu, sorted(sel), lambda order: self.merge_requested.emit(order)
+            )
         menu.exec(event.globalPos())
 
     # ── Image loading ───────────────────────────────────────────────

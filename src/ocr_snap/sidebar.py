@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, pyqtSignal
-from PyQt6.QtGui import QContextMenuEvent, QEnterEvent, QMouseEvent
+from PyQt6.QtGui import QColor, QContextMenuEvent, QEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -18,8 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from PyQt6.QtGui import QColor
-
+from ocr_snap.canvas import _add_merge_permutation_actions
 from ocr_snap.models import OCRResults, SelectionModel, item_color
 
 _ENTRY_STYLE = """
@@ -98,7 +97,8 @@ class SidebarEntry(QFrame):
         color: QColor,
         selection_model: SelectionModel,
         scroll_area: QScrollArea,
-        on_merge: Callable[[], None] | None = None,
+        on_merge: Callable[[list[int]], None] | None = None,
+        on_delete: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
@@ -110,6 +110,7 @@ class SidebarEntry(QFrame):
         self._selection_model = selection_model
         self._scroll_area = scroll_area
         self._on_merge = on_merge
+        self._on_delete = on_delete
 
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -243,17 +244,27 @@ class SidebarEntry(QFrame):
         if event is None:
             super().contextMenuEvent(event)  # type: ignore[arg-type]
             return
+        # Auto-select this entry if it's not already selected
+        if not self._selection_model.is_selected(self._index):
+            self._selection_model.select(self._index)
         sel = self._selection_model.selected_indices
-        if len(sel) < 2 or self._on_merge is None:
+        if len(sel) < 1:
             super().contextMenuEvent(event)
             return
         menu = QMenu(self)
-        menu.addAction(f"Merge selected ({len(sel)})", self._on_merge)
+        if self._on_delete is not None:
+            if len(sel) == 1:
+                menu.addAction("Delete", self._on_delete)
+            else:
+                menu.addAction(f"Delete selected ({len(sel)})", self._on_delete)
+        if len(sel) >= 2 and self._on_merge is not None:
+            _add_merge_permutation_actions(menu, sorted(sel), self._on_merge)
         menu.exec(event.globalPos())
 
 
 class OCRSidebar(QWidget):
-    merge_requested = pyqtSignal()
+    merge_requested = pyqtSignal(list)
+    delete_requested = pyqtSignal()
     confidence_filter_changed = pyqtSignal(float)
     reocr_requested = pyqtSignal(float)
 
@@ -390,7 +401,8 @@ class OCRSidebar(QWidget):
                 color,
                 selection_model,
                 self._scroll_area,
-                on_merge=self.merge_requested.emit,
+                on_merge=lambda order: self.merge_requested.emit(order),
+                on_delete=self.delete_requested.emit,
             )
             if not visible:
                 entry.hide()
