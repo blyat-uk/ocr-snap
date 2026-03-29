@@ -56,22 +56,22 @@ _SPARKS_PER_TICK = 3
 _SPARK_MAX_AGE = 25  # ticks
 _REVEAL_FADE_FRAMES = 8  # frames for item fade-in at _FPS
 
-_SQUARE_SIZE = 14
-_SQUARE_SPACING = 4
-_PLUS_WIDTH = 12
+_SQUARE_SIZE = 24
+_SQUARE_SPACING = 6
+_PLUS_WIDTH = 16
 
 
 def _make_order_icon(indices: tuple[int, ...]) -> QIcon:
     """Create an icon with colored squares representing the merge order."""
     n = len(indices)
     width = n * _SQUARE_SIZE + (n - 1) * (_SQUARE_SPACING + _PLUS_WIDTH + _SQUARE_SPACING)
-    height = _SQUARE_SIZE + 4  # small vertical padding
+    height = _SQUARE_SIZE + 6  # small vertical padding
     pixmap = QPixmap(width, height)
     pixmap.fill(QColor(0, 0, 0, 0))
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     font = QFont()
-    font.setPixelSize(10)
+    font.setPixelSize(16)
     font.setBold(True)
     painter.setFont(font)
     y = 2
