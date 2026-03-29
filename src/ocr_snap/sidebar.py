@@ -38,7 +38,7 @@ QPushButton {
     border-radius: 4px;
     color: #aaa;
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: 13px;
 }
 QPushButton:hover {
     background: rgba(255, 255, 255, 20);
@@ -124,17 +124,17 @@ class SidebarEntry(QFrame):
         badge_layout.setSpacing(2)
 
         idx_label = QLabel(f"{index + 1}")
-        idx_label.setFixedSize(24, 24)
+        idx_label.setFixedSize(28, 28)
         idx_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         idx_label.setStyleSheet(
-            "background: rgba(255,255,255,10); border-radius: 12px;color: #888; font-weight: bold; font-size: 10px;"
+            "background: rgba(255,255,255,10); border-radius: 14px;color: #888; font-weight: bold; font-size: 12px;"
         )
         badge_layout.addWidget(idx_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         conf_label = QLabel(f"{confidence:.0%}")
         conf_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         conf_label.setStyleSheet(
-            "color: #777; font-size: 9px; background: transparent; border: none;"
+            "color: #777; font-size: 11px; background: transparent; border: none;"
         )
         badge_layout.addWidget(conf_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
@@ -150,7 +150,7 @@ class SidebarEntry(QFrame):
         text_label = QLabel(text)
         text_label.setWordWrap(True)
         text_label.setStyleSheet(
-            "color: #ddd; font-size: 13px; background: transparent; border: none; min-height: 25px;"
+            "color: #ddd; font-size: 15px; background: transparent; border: none; min-height: 25px;"
         )
         self._original_zone.add_widget(text_label)
 
@@ -169,7 +169,7 @@ class SidebarEntry(QFrame):
         self._translation_label = QLabel()
         self._translation_label.setWordWrap(True)
         self._translation_label.setStyleSheet(
-            "color: #7ab8e0; font-size: 12px; background: transparent; border: none; min-height: 25px;"
+            "color: #7ab8e0; font-size: 14px; background: transparent; border: none; min-height: 25px;"
         )
         self._translation_zone.add_widget(self._translation_label)
         self._translation_zone.hide()
@@ -284,13 +284,13 @@ class OCRSidebar(QWidget):
 
         header = QLabel("OCR Results")
         header.setStyleSheet(
-            "font-size: 13px; font-weight: bold; color: #999;padding: 12px 14px 8px 14px; border: none;"
+            "font-size: 15px; font-weight: bold; color: #999;padding: 12px 14px 8px 14px; border: none;"
         )
         header_layout.addWidget(header)
 
         self._translating_label = QLabel("Translating...")
         self._translating_label.setStyleSheet(
-            "font-size: 11px; font-style: italic; color: #7ab8e0;padding: 12px 14px 8px 0; border: none;"
+            "font-size: 13px; font-style: italic; color: #7ab8e0;padding: 12px 14px 8px 0; border: none;"
         )
         self._translating_label.hide()
         header_layout.addWidget(self._translating_label)
@@ -305,7 +305,7 @@ class OCRSidebar(QWidget):
 
         slider_label = QLabel("Min confidence")
         slider_label.setStyleSheet(
-            "color: #777; font-size: 11px; background: transparent; border: none;"
+            "color: #777; font-size: 13px; background: transparent; border: none;"
         )
         slider_layout.addWidget(slider_label)
 
@@ -327,9 +327,9 @@ class OCRSidebar(QWidget):
         slider_layout.addWidget(self._confidence_slider, stretch=1)
 
         self._confidence_value_label = QLabel("50%")
-        self._confidence_value_label.setFixedWidth(32)
+        self._confidence_value_label.setFixedWidth(36)
         self._confidence_value_label.setStyleSheet(
-            "color: #999; font-size: 11px; background: transparent; border: none;"
+            "color: #999; font-size: 13px; background: transparent; border: none;"
         )
         slider_layout.addWidget(self._confidence_value_label)
 
@@ -360,6 +360,15 @@ class OCRSidebar(QWidget):
         self._container_layout = QVBoxLayout(self._container)
         self._container_layout.setContentsMargins(8, 4, 8, 8)
         self._container_layout.setSpacing(4)
+
+        self._no_results_label = QLabel("No results found")
+        self._no_results_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._no_results_label.setStyleSheet(
+            "color: #666; font-size: 13px; font-style: italic; background: transparent; border: none; padding: 24px 0;"
+        )
+        self._no_results_label.hide()
+        self._container_layout.addWidget(self._no_results_label)
+
         self._container_layout.addStretch()
         self._scroll_area.setWidget(self._container)
 
@@ -371,6 +380,8 @@ class OCRSidebar(QWidget):
         self._selection_model = None
         while self._container_layout.count():
             self._container_layout.takeAt(0)
+        self._container_layout.addWidget(self._no_results_label)
+        self._no_results_label.show()
         self._container_layout.addStretch()
         self._translating_label.hide()
 
@@ -388,9 +399,15 @@ class OCRSidebar(QWidget):
         self._entries.clear()
         self._selection_model = selection_model
 
-        # Remove the stretch
+        # Remove the stretch and no-results label
         while self._container_layout.count():
             self._container_layout.takeAt(0)
+
+        if results.items:
+            self._no_results_label.hide()
+        else:
+            self._container_layout.addWidget(self._no_results_label)
+            self._no_results_label.show()
 
         for ocr_item in results.items:
             color = item_color(ocr_item.index)

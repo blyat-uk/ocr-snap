@@ -165,7 +165,7 @@ class MainWindow(QMainWindow):
             self._apply_confidence_filter(state)
         else:
             self._sidebar.clear()
-            self._sidebar.hide()
+            self._sidebar.show()
             if state.ocr_running:
                 self._canvas.set_processing(True)
 
@@ -205,7 +205,7 @@ class MainWindow(QMainWindow):
                 # Apply current confidence filter after reveal
                 self._apply_confidence_filter(state)
             else:
-                self._sidebar.hide()
+                self._sidebar.show()
 
             count = len(results.items)
             self._status_bar.showMessage(
@@ -361,8 +361,6 @@ class MainWindow(QMainWindow):
 
         if new_results.items:
             self._start_translation(self._active_id)
-        else:
-            self._sidebar.hide()
 
     # ── Translation ─────────────────────────────────────────────────
 
