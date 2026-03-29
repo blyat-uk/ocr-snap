@@ -10,12 +10,15 @@ requires-python = ">=3.12"
 dependencies = [
     "PyQt6>=6.6",
     "paddleocr>=3.0",
-    "paddlepaddle-gpu>=3.3",
+    "paddlepaddle>=3.3",
     "numpy",
     "Pillow",
     "requests>=2.31",
     "python-dotenv>=1.0",
 ]
+
+[project.optional-dependencies]
+gpu = ["paddlepaddle-gpu>=3.3"]
 
 [project.scripts]
 ocr-snap = "ocr_snap.app:main"
