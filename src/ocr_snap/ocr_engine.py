@@ -9,8 +9,8 @@ import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from ocr_snap.models import OCRResultItem, OCRResults
+from ocr_snap.perf_settings import OCRPerfSettings
 
-_MAX_LONG_SIDE = 2000
 _PREDICT_TIMEOUT = 30  # seconds
 _PRELOAD_TIMEOUT = 60  # seconds
 
@@ -18,24 +18,32 @@ _PRELOAD_TIMEOUT = 60  # seconds
 class OCREngine(QObject):
     result_ready = pyqtSignal(str, OCRResults)  # (image_id, results)
     error_occurred = pyqtSignal(str)
+    model_load_failed = pyqtSignal(str)
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(
+        self, perf: OCRPerfSettings, parent: QObject | None = None
+    ) -> None:
         super().__init__(parent)
+        self._perf = perf
+        self._max_long_side = perf.ocr_max_long_side
         self._ocr: object | None = None
         self._queue: collections.deque[tuple[str, np.ndarray, float]] = collections.deque()
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
         self._preload_done = threading.Event()
+        self._preload_error: str | None = None
         self._predict_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     def preload(self) -> None:
-        """Start loading the OCR model in a background thread."""
         thread = threading.Thread(target=self._preload_worker, daemon=True)
         thread.start()
 
     def _preload_worker(self) -> None:
         try:
             self._init_ocr()
+        except Exception as e:  # surface init failures up to the UI
+            self._preload_error = str(e)
+            self.model_load_failed.emit(str(e))
         finally:
             self._preload_done.set()
 
@@ -43,24 +51,50 @@ class OCREngine(QObject):
         with self._lock:
             self._queue.append((image_id, image, min_confidence))
             if self._worker is not None and self._worker.is_alive():
-                return  # worker will pick it up
+                return
         self._start_worker()
 
     def _start_worker(self) -> None:
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
 
-    def _init_ocr(self) -> None:
-        if self._ocr is None:
-            from paddleocr import PaddleOCR
+    def _resolve_device(self) -> str:
+        """Return 'gpu' or 'cpu' for PaddleOCR's device kwarg."""
+        if self._perf.device == "cpu":
+            return "cpu"
+        # auto
+        try:
+            import paddle  # type: ignore[import-not-found]
+            if paddle.is_compiled_with_cuda():
+                return "gpu"
+        except Exception:
+            pass
+        return "cpu"
 
-            self._ocr = PaddleOCR(
-                text_detection_model_name="PP-OCRv5_server_det",
-                text_recognition_model_name="PP-OCRv5_server_rec",
-                use_doc_orientation_classify=False,
-                use_doc_unwarping=False,
-                use_textline_orientation=False,
-            )
+    def _init_ocr(self) -> None:
+        if self._ocr is not None:
+            return
+        from paddleocr import PaddleOCR
+
+        if self._perf.model_variant == "server":
+            det = "PP-OCRv5_server_det"
+            rec = "PP-OCRv5_server_rec"
+        else:
+            det = "PP-OCRv5_mobile_det"
+            rec = "PP-OCRv5_mobile_rec"
+
+        device = self._resolve_device()
+        kwargs: dict[str, object] = dict(
+            text_detection_model_name=det,
+            text_recognition_model_name=rec,
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            device=device,
+        )
+        if device == "cpu" and self._perf.paddle_cpu_threads > 0:
+            kwargs["cpu_threads"] = self._perf.paddle_cpu_threads
+        self._ocr = PaddleOCR(**kwargs)
 
     def _worker_loop(self) -> None:
         while True:
@@ -75,18 +109,19 @@ class OCREngine(QObject):
             if not self._preload_done.wait(timeout=_PRELOAD_TIMEOUT):
                 self.error_occurred.emit("OCR model loading timed out")
                 return
+            if self._preload_error is not None:
+                self.error_occurred.emit(f"OCR model failed to load: {self._preload_error}")
+                return
             self._init_ocr()  # fallback if preload() was never called
 
-            # Downscale large images to avoid hangs
             h, w = image.shape[:2]
             scale = 1.0
-            if max(h, w) > _MAX_LONG_SIDE:
-                scale = _MAX_LONG_SIDE / max(h, w)
+            if max(h, w) > self._max_long_side:
+                scale = self._max_long_side / max(h, w)
                 new_w = int(w * scale)
                 new_h = int(h * scale)
                 image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-            # Run prediction with timeout
             future = self._predict_pool.submit(self._ocr.predict, image)  # type: ignore[union-attr]
             try:
                 result = future.result(timeout=_PREDICT_TIMEOUT)
@@ -95,9 +130,7 @@ class OCREngine(QObject):
                 return
 
             if not result or result[0] is None:
-                self.result_ready.emit(
-                    image_id, OCRResults([], w, h)
-                )
+                self.result_ready.emit(image_id, OCRResults([], w, h))
                 return
 
             page = result[0]
@@ -129,9 +162,7 @@ class OCREngine(QObject):
                 )
                 idx += 1
 
-            self.result_ready.emit(
-                image_id, OCRResults(items, w, h)
-            )
+            self.result_ready.emit(image_id, OCRResults(items, w, h))
         except Exception as e:
             self.error_occurred.emit(str(e))
 

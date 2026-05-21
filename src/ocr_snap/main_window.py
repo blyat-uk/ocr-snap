@@ -18,6 +18,7 @@ from ocr_snap.canvas import OCRCanvas
 from ocr_snap.gallery import GalleryPanel
 from ocr_snap.models import ImageState, OCRResultItem, OCRResults
 from ocr_snap.ocr_engine import OCREngine
+from ocr_snap.perf_settings import AppSettings
 from ocr_snap.settings_dialog import SettingsDialog
 from ocr_snap.sidebar import OCRSidebar
 from ocr_snap.translator import TranslationEngine
@@ -43,15 +44,16 @@ QSplitter::handle:hover {
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, translate_api_key: str = "") -> None:
+    def __init__(self, settings: AppSettings) -> None:
         super().__init__()
         self.setWindowTitle("OCR Snap")
         self.resize(1200, 800)
         self.setStyleSheet(_APP_STYLE)
 
-        self._ocr_engine = OCREngine(self)
+        self._app_settings = settings
+        self._ocr_engine = OCREngine(settings.perf, self)
         self._ocr_engine.preload()
-        self._translator = TranslationEngine(translate_api_key, self)
+        self._translator = TranslationEngine(settings.deepl_api_key, self)
 
         # Multi-image state
         self._images: dict[str, ImageState] = {}
