@@ -154,3 +154,6 @@ profile_default/
 .spyproject
 
 site/
+### Project-local ###
+# Internal specs/plans/notes — kept locally, not shared
+docs/
