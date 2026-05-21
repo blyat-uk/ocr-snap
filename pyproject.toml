@@ -15,6 +15,7 @@ dependencies = [
     "Pillow",
     "requests>=2.31",
     "python-dotenv>=1.0",
+    "qtawesome>=1.2",
 ]
 
 [project.optional-dependencies]
