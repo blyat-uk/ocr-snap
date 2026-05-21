@@ -50,7 +50,6 @@ def test_round_trip(tmp_config_path: Path) -> None:
             model_variant="server",
             device="cpu",
             ocr_max_long_side=1600,
-            drop_array_after_ocr=False,
             processing_animation="full",
             paddle_cpu_threads=6,
         ),
@@ -64,7 +63,6 @@ def test_round_trip(tmp_config_path: Path) -> None:
     assert loaded.perf.model_variant == "server"
     assert loaded.perf.device == "cpu"
     assert loaded.perf.ocr_max_long_side == 1600
-    assert loaded.perf.drop_array_after_ocr is False
     assert loaded.perf.processing_animation == "full"
     assert loaded.perf.paddle_cpu_threads == 6
     assert loaded.hardware_tier == "high"

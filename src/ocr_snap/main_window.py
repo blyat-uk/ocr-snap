@@ -260,7 +260,7 @@ class MainWindow(QMainWindow):
             return
 
         state.ocr_results = results
-        if self._app_settings.perf.drop_array_after_ocr and results.items:
+        if results.items:
             state.array = None
         state.ocr_running = False
         self._gallery.set_processing(image_id, False)

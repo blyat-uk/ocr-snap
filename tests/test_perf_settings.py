@@ -28,7 +28,6 @@ def test_low_tier_defaults() -> None:
     assert perf.model_variant == "mobile"
     assert perf.device == "cpu"
     assert perf.ocr_max_long_side == 1280
-    assert perf.drop_array_after_ocr is True
     assert perf.processing_animation == "off"
     assert perf.paddle_cpu_threads == 2
 
@@ -38,7 +37,6 @@ def test_medium_tier_defaults() -> None:
     assert perf.model_variant == "mobile"
     assert perf.device == "auto"
     assert perf.ocr_max_long_side == 2000
-    assert perf.drop_array_after_ocr is True
     assert perf.processing_animation == "minimal"
     assert perf.paddle_cpu_threads == 4
 
@@ -48,9 +46,8 @@ def test_high_tier_defaults() -> None:
     assert perf.model_variant == "server"
     assert perf.device == "auto"
     assert perf.ocr_max_long_side == 2400
-    assert perf.drop_array_after_ocr is False
     assert perf.processing_animation == "full"
-    assert perf.paddle_cpu_threads == 0
+    assert perf.paddle_cpu_threads == 4
 
 
 def test_apply_tier_overwrites_perf() -> None:
@@ -86,13 +83,13 @@ def test_apply_tier_respects_cpu_cap() -> None:
     settings = AppSettings(detected_cpu_cores=2)
     apply_tier(settings, "high")
     assert settings.hardware_tier == "high"
-    assert settings.perf.paddle_cpu_threads == 1  # capped from high's default of 0
+    assert settings.perf.paddle_cpu_threads == 1  # <4 cores rule overrides tier default of 4
 
 
 def test_apply_tier_skips_cap_when_cores_unknown() -> None:
     settings = AppSettings()  # detected_cpu_cores defaults to 0
     apply_tier(settings, "high")
-    assert settings.perf.paddle_cpu_threads == 0  # cap does not apply
+    assert settings.perf.paddle_cpu_threads == 4  # tier default is 4; cap does not apply (cores unknown)
 
 
 def test_from_profile_preserves_deepl_key() -> None:
@@ -124,3 +121,14 @@ def test_display_long_side_is_2400() -> None:
     from ocr_snap.perf_settings import DISPLAY_LONG_SIDE
 
     assert DISPLAY_LONG_SIDE == 2400
+
+
+def test_apply_tier_clamps_threads_above_four() -> None:
+    """If a tier default ever exceeded 4 (or someone hand-edits the
+    AppSettings.perf.paddle_cpu_threads after apply_tier), we still
+    clamp to 4. Defensive."""
+    settings = AppSettings(detected_cpu_cores=8)
+    apply_tier(settings, "high")
+    settings.perf.paddle_cpu_threads = 16  # simulate hand-edit
+    apply_tier(settings, "high")            # re-apply
+    assert settings.perf.paddle_cpu_threads == 4
