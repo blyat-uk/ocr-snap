@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QVBoxLayout,
 )
 
@@ -26,6 +25,7 @@ from ocr_snap.perf_settings import (
     apply_tier,
     from_profile,
 )
+from ocr_snap.theme import PrimaryButton, Tokens
 
 _MODEL_OPTIONS = [
     ("Mobile (smaller, faster, less accurate)", "mobile"),
@@ -36,6 +36,17 @@ _DEVICE_OPTIONS = [
     ("Auto (GPU if available)", "auto"),
     ("CPU only", "cpu"),
 ]
+
+_HINT_STYLE = f"color: {Tokens.text_muted}; font-size: {Tokens.text_base}px;"
+_NOTE_STYLE = (
+    f"color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px; "
+    f"font-style: italic;"
+)
+_STATUS_COLORS = {
+    "error": Tokens.danger,
+    "success": Tokens.success,
+    "neutral": Tokens.text_muted,
+}
 
 
 class SettingsDialog(QDialog):
@@ -60,6 +71,23 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
+        self.setStyleSheet(f"""
+QGroupBox {{
+    color: {Tokens.text_primary};
+    font-size: {Tokens.text_base}px;
+    border: 1px solid {Tokens.border};
+    border-radius: {Tokens.r_md}px;
+    margin-top: {Tokens.sp_3}px;
+    padding-top: {Tokens.sp_3}px;
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: {Tokens.sp_3}px;
+    padding: 0 {Tokens.sp_1}px;
+    background: {Tokens.bg_base};
+}}
+""")
 
         layout.addWidget(self._build_translation_group())
         layout.addWidget(self._build_ocr_group())
@@ -81,7 +109,7 @@ class SettingsDialog(QDialog):
             "Get one at https://www.deepl.com/account/summary."
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888; font-size: 12px;")
+        hint.setStyleSheet(_HINT_STYLE)
         v.addWidget(hint)
 
         row = QHBoxLayout()
@@ -94,14 +122,14 @@ class SettingsDialog(QDialog):
         self._show_box.toggled.connect(self._toggle_visibility)
         row.addWidget(self._show_box)
 
-        self._test_btn = QPushButton("Test key")
+        self._test_btn = PrimaryButton("Test key")
         self._test_btn.clicked.connect(self._on_test_key)
         row.addWidget(self._test_btn)
         v.addLayout(row)
 
         self._key_status = QLabel("")
         self._key_status.setWordWrap(True)
-        self._key_status.setStyleSheet("font-size: 12px;")
+        self._key_status.setStyleSheet(f"font-size: {Tokens.text_base}px;")
         v.addWidget(self._key_status)
 
         return box
@@ -109,6 +137,8 @@ class SettingsDialog(QDialog):
     def _build_ocr_group(self) -> QGroupBox:
         box = QGroupBox("OCR engine")
         form = QFormLayout(box)
+        form.setVerticalSpacing(Tokens.sp_3)
+        form.setHorizontalSpacing(Tokens.sp_3)
 
         self._model_combo = QComboBox()
         for label, value in _MODEL_OPTIONS:
@@ -129,7 +159,7 @@ class SettingsDialog(QDialog):
         note = QLabel(
             "Model or device changes take effect after restarting the app."
         )
-        note.setStyleSheet("color: #888; font-size: 11px; font-style: italic;")
+        note.setStyleSheet(_NOTE_STYLE)
         note.setWordWrap(True)
         form.addRow(note)
 
@@ -152,7 +182,7 @@ class SettingsDialog(QDialog):
         self._tier_combo.setCurrentIndex(idx)
         row.addWidget(self._tier_combo, 1)
 
-        redetect = QPushButton("Auto-detect")
+        redetect = PrimaryButton("Auto-detect")
         redetect.setToolTip(
             "Re-run hardware detection and reset the profile to the recommended tier."
         )
@@ -161,7 +191,9 @@ class SettingsDialog(QDialog):
         v.addLayout(row)
 
         self._detected_label = QLabel()
-        self._detected_label.setStyleSheet("color: #888; font-size: 11px;")
+        self._detected_label.setStyleSheet(
+            f"color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px;"
+        )
         self._refresh_detected_label()
         v.addWidget(self._detected_label)
 
@@ -169,7 +201,7 @@ class SettingsDialog(QDialog):
             "Profile changes also rewrite Model and Device above. "
             "Restart the app for OCR-engine changes to take effect."
         )
-        note.setStyleSheet("color: #888; font-size: 11px; font-style: italic;")
+        note.setStyleSheet(_NOTE_STYLE)
         note.setWordWrap(True)
         v.addWidget(note)
 
@@ -192,21 +224,24 @@ class SettingsDialog(QDialog):
             QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
         )
 
-    def _set_key_status(self, text: str, color: str) -> None:
+    def _set_key_status(self, text: str, state: str) -> None:
+        color = _STATUS_COLORS[state]
         self._key_status.setText(text)
-        self._key_status.setStyleSheet(f"font-size: 12px; color: {color};")
+        self._key_status.setStyleSheet(
+            f"font-size: {Tokens.text_base}px; color: {color};"
+        )
 
     def _on_test_key(self) -> None:
         key = self._key_field.text().strip()
         if not key:
-            self._set_key_status("Key is empty.", "#e07a7a")
+            self._set_key_status("Key is empty.", "error")
             return
         url = (
             "https://api-free.deepl.com/v2/usage"
             if key.endswith(":fx")
             else "https://api.deepl.com/v2/usage"
         )
-        self._set_key_status("Testing…", "#888")
+        self._set_key_status("Testing…", "neutral")
         self._test_btn.setEnabled(False)
         QApplication.processEvents()
         try:
@@ -217,17 +252,17 @@ class SettingsDialog(QDialog):
             )
         except requests.RequestException as e:
             self._test_btn.setEnabled(True)
-            self._set_key_status(f"Network error: {e}", "#e07a7a")
+            self._set_key_status(f"Network error: {e}", "error")
             return
         self._test_btn.setEnabled(True)
         if resp.status_code == 200:
-            self._set_key_status("Key OK.", "#7ad07a")
+            self._set_key_status("Key OK.", "success")
         elif resp.status_code in (401, 403):
-            self._set_key_status("DeepL rejected the key (unauthorized).", "#e07a7a")
+            self._set_key_status("DeepL rejected the key (unauthorized).", "error")
         else:
             self._set_key_status(
                 f"Unexpected response from DeepL (HTTP {resp.status_code}).",
-                "#e07a7a",
+                "error",
             )
 
     def _on_redetect(self) -> None:
