@@ -121,7 +121,7 @@ QPushButton:hover {{
 
     def _apply_style(self) -> None:
         if self._processing and not self._active:
-            self.setStyleSheet(_PROCESSING_STYLE.format())
+            self.setStyleSheet(_PROCESSING_STYLE)
         elif self._active:
             self.setStyleSheet(_THUMB_STYLE.format(border=Tokens.alert))
         else:
