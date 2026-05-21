@@ -16,7 +16,7 @@ import numpy as np
 from ocr_snap import config
 from ocr_snap.canvas import OCRCanvas
 from ocr_snap.gallery import GalleryPanel
-from ocr_snap.models import ImageState, OCRResultItem, OCRResults
+from ocr_snap.models import ImageState, OCRResultItem, OCRResults, array_from_pixmap
 from ocr_snap.ocr_engine import OCREngine
 from ocr_snap.perf_settings import AppSettings
 from ocr_snap.settings_dialog import SettingsDialog
@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
         self._gallery.hide()
 
         self._canvas = OCRCanvas()
+        self._canvas.set_animation_mode(self._app_settings.perf.processing_animation)
         self._sidebar = OCRSidebar()
         self._sidebar.setMinimumWidth(200)
         self._sidebar.hide()
@@ -187,6 +188,8 @@ class MainWindow(QMainWindow):
             return
 
         state.ocr_results = results
+        if self._app_settings.perf.drop_array_after_ocr and results.items:
+            state.array = None
         state.ocr_running = False
         self._gallery.set_processing(image_id, False)
 
@@ -258,6 +261,8 @@ class MainWindow(QMainWindow):
         state = self._images.get(self._active_id)
         if state is None:
             return
+        if state.array is None:
+            state.array = array_from_pixmap(state.pixmap)
         state.ocr_threshold = threshold
         state.ocr_running = True
         self._canvas.set_processing(True)
