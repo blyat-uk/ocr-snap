@@ -9,7 +9,7 @@ import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from ocr_snap.models import OCRResultItem, OCRResults
-from ocr_snap.perf_settings import OCRPerfSettings
+from ocr_snap.perf_settings import OCRPerfSettings, effective_ocr_long_side
 
 _PREDICT_TIMEOUT = 30  # seconds
 _PRELOAD_TIMEOUT = 60  # seconds
@@ -25,6 +25,11 @@ class OCREngine(QObject):
     ) -> None:
         super().__init__(parent)
         self._perf = perf
+        # Resolve device eagerly so the canvas can read effective_long_side
+        # before the preload thread actually instantiates PaddleOCR.
+        device = self._resolve_device()
+        self.effective_long_side: int = effective_ocr_long_side(perf, device)
+        self._resolved_device: str = device
         self._max_long_side = perf.ocr_max_long_side
         self._ocr: object | None = None
         self._queue: collections.deque[tuple[str, np.ndarray, float]] = collections.deque()
@@ -83,7 +88,7 @@ class OCREngine(QObject):
             det = "PP-OCRv5_mobile_det"
             rec = "PP-OCRv5_mobile_rec"
 
-        device = self._resolve_device()
+        device = self._resolved_device
         kwargs: dict[str, object] = dict(
             text_detection_model_name=det,
             text_recognition_model_name=rec,
