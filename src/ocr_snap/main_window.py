@@ -3,13 +3,17 @@ from __future__ import annotations
 from uuid import uuid4
 
 from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QCloseEvent, QKeyEvent, QKeySequence, QPixmap
+from PyQt6.QtGui import QCloseEvent, QKeyEvent, QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
+    QHBoxLayout,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QSplitter,
     QStatusBar,
+    QVBoxLayout,
+    QWidget,
 )
 
 import numpy as np
@@ -39,6 +43,19 @@ QSplitter::handle {
 }
 QSplitter::handle:hover {
     background: #3a3a3a;
+}
+"""
+
+_SETTINGS_LINK_STYLE = """
+QPushButton {
+    background: transparent;
+    border: none;
+    color: #555;
+    font-size: 11px;
+    padding: 2px 10px;
+}
+QPushButton:hover {
+    color: #aaa;
 }
 """
 
@@ -82,7 +99,36 @@ class MainWindow(QMainWindow):
         self._splitter.setCollapsible(1, False)
         self._splitter.setCollapsible(2, False)
         self._splitter.setSizes([0, 880, 320])
-        self.setCentralWidget(self._splitter)
+
+        # Central widget = splitter + footer row with a quiet Settings link.
+        # The link is reachable before any image is loaded (the sidebar
+        # gear, by contrast, is hidden until the sidebar appears).
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self._splitter, stretch=1)
+
+        footer = QWidget()
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(0, 2, 0, 2)
+        footer_layout.addStretch()
+        self._settings_link = QPushButton("Settings")
+        self._settings_link.setFlat(True)
+        self._settings_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._settings_link.setStyleSheet(_SETTINGS_LINK_STYLE)
+        self._settings_link.clicked.connect(self._on_settings_requested)
+        footer_layout.addWidget(self._settings_link)
+        footer_layout.addStretch()
+        central_layout.addWidget(footer)
+
+        self.setCentralWidget(central)
+
+        QShortcut(
+            QKeySequence(QKeySequence.StandardKey.Preferences),
+            self,
+            activated=self._on_settings_requested,
+        )
 
         # Status bar
         self._status_bar = QStatusBar()
