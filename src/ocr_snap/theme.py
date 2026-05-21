@@ -6,6 +6,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
+
+import qtawesome as qta
+
 
 @dataclass(frozen=True)
 class _Tokens:
@@ -55,11 +61,6 @@ class _Tokens:
 Tokens = _Tokens()
 
 
-from PyQt6.QtGui import QIcon
-
-import qtawesome as qta
-
-
 class Icons:
     """Phosphor icon factories via qtawesome. Default color is text-primary."""
 
@@ -88,3 +89,124 @@ class Icons:
     @classmethod
     def merge(cls, color: str | None = None) -> QIcon:
         return cls._i("ph.git-merge", color)
+
+
+# --- IconButton ---
+
+_ICON_BUTTON_QSS = f"""
+QPushButton {{
+    background: transparent;
+    border: none;
+    border-radius: {Tokens.r_sm}px;
+    padding: {Tokens.sp_1}px;
+}}
+QPushButton:hover {{
+    background: {Tokens.bg_hover};
+}}
+QPushButton:pressed {{
+    background: {Tokens.bg_raised};
+}}
+QPushButton:checked {{
+    background: {Tokens.accent_deep};
+}}
+"""
+
+
+class IconButton(QPushButton):
+    """Square, transparent-by-default icon button. Hover → bg_hover."""
+
+    def __init__(
+        self,
+        icon: QIcon,
+        tooltip: str = "",
+        *,
+        size: int = 24,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setIcon(icon)
+        self.setIconSize(QSize(size, size))
+        self.setFixedSize(size + 8, size + 8)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFlat(True)
+        self.setStyleSheet(_ICON_BUTTON_QSS)
+        if tooltip:
+            self.setToolTip(tooltip)
+
+
+# --- PrimaryButton ---
+
+_PRIMARY_BUTTON_QSS = f"""
+QPushButton {{
+    background: {Tokens.accent_deep};
+    color: {Tokens.text_emphasis};
+    border: 1px solid {Tokens.accent};
+    border-radius: {Tokens.r_md}px;
+    padding: {Tokens.sp_1}px {Tokens.sp_3}px;
+    font-size: {Tokens.text_base}px;
+}}
+QPushButton:hover {{
+    background: #2a6fb8;
+}}
+QPushButton:pressed {{
+    background: {Tokens.accent};
+}}
+QPushButton:disabled {{
+    background: {Tokens.bg_raised};
+    color: {Tokens.text_muted};
+    border-color: {Tokens.border};
+}}
+"""
+
+
+class PrimaryButton(QPushButton):
+    """Accent-filled call-to-action button."""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(_PRIMARY_BUTTON_QSS)
+
+
+# --- StatusChip ---
+
+_STATUS_CHIP_QSS = """
+QLabel {{
+    background: {bg};
+    color: {fg};
+    border: 1px solid {border};
+    border-radius: {r}px;
+    padding: 2px 8px;
+    font-size: {fs}px;
+}}
+"""
+
+
+class StatusChip(QLabel):
+    """Pill-shaped label for transient state ('Translating…', etc.)."""
+
+    _STATES = {
+        "muted": (Tokens.bg_deepest, Tokens.text_muted, Tokens.border),
+        "translation": (Tokens.bg_deepest, Tokens.translation, Tokens.translation),
+        "alert": (Tokens.bg_deepest, Tokens.alert, Tokens.alert),
+        "danger": (Tokens.bg_deepest, Tokens.danger, Tokens.danger),
+        "success": (Tokens.bg_deepest, Tokens.success, Tokens.success),
+    }
+
+    def __init__(
+        self,
+        text: str = "",
+        *,
+        state: str = "muted",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(text, parent)
+        self.set_state(state)
+
+    def set_state(self, state: str) -> None:
+        bg, fg, border = self._STATES[state]
+        self.setStyleSheet(
+            _STATUS_CHIP_QSS.format(
+                bg=bg, fg=fg, border=border, r=Tokens.r_pill, fs=Tokens.text_eyebrow
+            )
+        )

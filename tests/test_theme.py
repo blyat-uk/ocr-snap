@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from ocr_snap.theme import Tokens
+from PyQt6.QtGui import QIcon
+
+from ocr_snap.theme import IconButton, Icons, PrimaryButton, StatusChip, Tokens
 
 
 def test_theme_module_imports() -> None:
@@ -63,11 +65,6 @@ def test_tokens_is_frozen() -> None:
         Tokens.bg_base = "#000000"  # type: ignore[misc]
 
 
-from PyQt6.QtGui import QIcon
-
-from ocr_snap.theme import Icons
-
-
 def test_icons_settings_returns_valid_qicon(qapp) -> None:
     icon = Icons.settings()
     assert isinstance(icon, QIcon)
@@ -104,3 +101,36 @@ def test_icons_accepts_color_override(qapp) -> None:
     override = Icons.settings(color="#ff0000")
     assert not default.isNull()
     assert not override.isNull()
+
+
+def test_icon_button_constructs(qapp) -> None:
+    btn = IconButton(Icons.settings(), tooltip="Settings")
+    assert btn.toolTip() == "Settings"
+    assert not btn.icon().isNull()
+
+
+def test_icon_button_default_no_tooltip(qapp) -> None:
+    btn = IconButton(Icons.close())
+    assert btn.toolTip() == ""
+
+
+def test_primary_button_constructs(qapp) -> None:
+    btn = PrimaryButton("Test key")
+    assert btn.text() == "Test key"
+
+
+def test_status_chip_constructs_with_default_state(qapp) -> None:
+    chip = StatusChip("Translating…")
+    assert chip.text() == "Translating…"
+
+
+def test_status_chip_set_state_accepts_known_states(qapp) -> None:
+    chip = StatusChip()
+    for state in ("muted", "translation", "alert", "danger", "success"):
+        chip.set_state(state)  # must not raise
+
+
+def test_status_chip_set_state_unknown_raises(qapp) -> None:
+    chip = StatusChip()
+    with pytest.raises(KeyError):
+        chip.set_state("not-a-real-state")
