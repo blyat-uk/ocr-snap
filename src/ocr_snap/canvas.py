@@ -43,7 +43,7 @@ from PyQt6.QtWidgets import (
     QMenu,
 )
 
-from ocr_snap.models import OCRResults, SelectionModel, item_color
+from ocr_snap.models import OCRResults, SelectionModel, array_from_pixmap, item_color
 
 if TYPE_CHECKING:
     from ocr_snap.models import ImageState
@@ -609,17 +609,8 @@ class OCRCanvas(QGraphicsView):
 
         self._remove_placeholder()
 
-        qimg_rgb = qimg.convertToFormat(QImage.Format.Format_RGB888)
-        ptr = qimg_rgb.bits()
-        if ptr is None:
-            return
-        h, w = qimg_rgb.height(), qimg_rgb.width()
-        bpl = qimg_rgb.bytesPerLine()
-        ptr.setsize(bpl * h)
-        buf = np.frombuffer(ptr, dtype=np.uint8).reshape(h, bpl)  # type: ignore[call-overload]
-        arr = buf[:, : w * 3].reshape(h, w, 3).copy()
-
         pixmap = QPixmap.fromImage(qimg)
+        arr = array_from_pixmap(pixmap)
         if self._pixmap_item:
             self._scene.removeItem(self._pixmap_item)
         for gfx_item in self._ocr_items:

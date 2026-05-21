@@ -4,13 +4,26 @@ from dataclasses import dataclass
 
 import numpy as np
 from PyQt6.QtCore import QObject, QPointF, pyqtSignal
-from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtGui import QColor, QImage, QPixmap
 
 
 def item_color(index: int) -> QColor:
     """Return a distinct color for the given item index."""
     hue = (index * 137.5) % 360  # golden-angle spacing
     return QColor.fromHslF(hue / 360.0, 0.7, 0.6)
+
+
+def array_from_pixmap(pixmap: QPixmap) -> np.ndarray:
+    """Convert a QPixmap to an RGB uint8 numpy array (H, W, 3)."""
+    qimg = pixmap.toImage().convertToFormat(QImage.Format.Format_RGB888)
+    ptr = qimg.bits()
+    if ptr is None:
+        raise RuntimeError("QImage.bits() returned None")
+    h, w = qimg.height(), qimg.width()
+    bpl = qimg.bytesPerLine()
+    ptr.setsize(bpl * h)
+    buf = np.frombuffer(ptr, dtype=np.uint8).reshape(h, bpl)  # type: ignore[call-overload]
+    return buf[:, : w * 3].reshape(h, w, 3).copy()
 
 
 @dataclass
@@ -31,10 +44,10 @@ class OCRResults:
 
 
 class ImageState:
-    def __init__(self, image_id: str, pixmap: QPixmap, array: np.ndarray) -> None:
+    def __init__(self, image_id: str, pixmap: QPixmap, array: np.ndarray | None) -> None:
         self.image_id = image_id
         self.pixmap = pixmap
-        self.array = array
+        self.array: np.ndarray | None = array
         self.selection_model = SelectionModel()
         self.ocr_results: OCRResults | None = None
         self.ocr_running: bool = False
