@@ -53,8 +53,13 @@ verbatim so a 6 GB Windows user lands on Performance.
 | `ocr_max_long_side` | 1280 | 2000 | 2400 |
 | `drop_array_after_ocr` | True | True | False |
 | `processing_animation` | `off` | `minimal` | `full` |
-| `gallery_thumb_max_dim` | 120 | 200 | 280 |
 | `paddle_cpu_threads` | 2 | 4 | 0 |
+
+(Note: `gallery_thumb_max_dim` was originally listed here but removed
+during plan review — `GalleryThumbnail` already downscales internally
+to 74×100 and discards the source pixmap, so a tier knob there would
+save kilobytes at most. Real per-image memory is dominated by
+`ImageState.array`, which `drop_array_after_ocr` handles.)
 
 `mobile` = `PP-OCRv5_mobile_det` + `PP-OCRv5_mobile_rec`.
 `server` = current `PP-OCRv5_server_det` + `PP-OCRv5_server_rec`.
@@ -96,7 +101,6 @@ class OCRPerfSettings:
     ocr_max_long_side: int = 2000
     drop_array_after_ocr: bool = True
     processing_animation: Literal["off", "minimal", "full"] = "minimal"
-    gallery_thumb_max_dim: int = 200
     paddle_cpu_threads: int = 4
 
 @dataclass
@@ -257,12 +261,6 @@ self._ocr_engine.model_load_failed.connect(self._on_model_load_failed)
 self._canvas.set_animation_mode(self._app_settings.perf.processing_animation)
 ```
 
-In `_on_image_loaded`: build the gallery thumbnail by scaling `pixmap`
-down to `self._app_settings.perf.gallery_thumb_max_dim` (using
-`QPixmap.scaled` with `Qt.AspectRatioMode.KeepAspectRatio` and smooth
-transform). Pass the thumbnail (not the full pixmap) to
-`self._gallery.add_image`.
-
 In `_on_ocr_results`: after `state.ocr_results = results`, if
 `self._app_settings.perf.drop_array_after_ocr` and `results.items`,
 set `state.array = None`.
@@ -274,9 +272,8 @@ In `_on_settings_requested`: open the new dialog with the current
 `AppSettings`. Handle:
 - `dialog.tier_overridden` and `dialog.perf_changed` → show
   `QMessageBox.information` with a "Restart OCR Snap for the new OCR
-  engine settings to take effect." message. Animation and thumb sizes
-  apply live (re-call `set_animation_mode`; new thumbs use the new size,
-  existing thumbs stay).
+  engine settings to take effect." message. The animation mode applies
+  live (re-call `set_animation_mode` after save).
 - `dialog.hardware_redetect_requested` → `from_profile(detect())`,
   preserve DeepL key, save, refresh the dialog's detected line.
 
@@ -294,7 +291,7 @@ switch tier or device.
 | `src/ocr_snap/ocr_engine.py` | Constructor takes `OCRPerfSettings`; remove hardcoded model names; add `model_load_failed` signal; device resolution; cpu_threads wiring |
 | `src/ocr_snap/settings_dialog.py` | Rebuild as multi-group dialog (Translation / OCR engine / Hardware profile) |
 | `src/ocr_snap/canvas.py` | `set_animation_mode()`; conditional scan line and spark count; lift `array_from_pixmap` helper out of `_load_qimage` |
-| `src/ocr_snap/main_window.py` | Load settings → engine; drop-array after OCR; thumb resize; animation mode; restart-prompt UX; model-load-failed handler |
+| `src/ocr_snap/main_window.py` | Load settings → engine; drop-array after OCR; animation mode; restart-prompt UX; model-load-failed handler |
 | `src/ocr_snap/models.py` | `ImageState.array: np.ndarray \| None` |
 | `pyproject.toml` | No new runtime deps (pure stdlib detection). If desired later, add an optional `nvidia` extra with `pynvml`. |
 | `tests/test_hardware_profile.py` | New: `_pick_tier` parametrized + `detect` smoke test |
@@ -327,12 +324,12 @@ Following sub-label-pos's pattern:
 - The 6 GB / GTX 1650 user, on first launch after upgrading, gets:
   - Auto-detected RAM ≈ 6 GB → Performance tier.
   - Mobile model + CPU device → no GPU OOM, slower but stable.
-  - 1280 px downscale, dimmer animation, smaller thumbs → less RAM.
+  - 1280 px downscale, dimmer animation → less RAM/CPU during OCR.
 - A user who *wants* to try the server model on a strong machine flips
   the Profile to Quality (or just toggles the Model combo to Server),
   clicks OK, restarts. No code change required.
 - Restart prompt only appears when model or device changes — animation
-  and thumb tweaks are live.
+  mode change is live.
 
 ## Implementation-time verifications
 
