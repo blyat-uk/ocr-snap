@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ocr_snap.models import OCRResults, SelectionModel, array_from_pixmap, item_color
+from ocr_snap.theme import Icons, Tokens
 
 if TYPE_CHECKING:
     from ocr_snap.models import ImageState
@@ -109,7 +110,7 @@ def _add_merge_permutation_actions(
         order = list(perms[0])
         menu.addAction(icon, "Merge", lambda o=order: callback(o))  # type: ignore[misc]
     else:
-        merge_menu = menu.addMenu(f"Merge selected ({len(indices)})")
+        merge_menu = menu.addMenu(Icons.merge(), f"Merge selected ({len(indices)})")
         for perm in perms:
             icon = _make_order_icon(perm)
             order = list(perm)
@@ -266,7 +267,7 @@ class OCRCanvas(QGraphicsView):
         super().__init__(parent)
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
-        self._scene.setBackgroundBrush(QBrush(QColor(30, 30, 30)))
+        self._scene.setBackgroundBrush(QBrush(QColor(Tokens.bg_base)))
 
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -431,12 +432,12 @@ class OCRCanvas(QGraphicsView):
     def show_placeholder(self) -> None:
         self._remove_placeholder()
         html = (
-            '<div style="text-align:center;">'
-            '<p style="font-size:28px; color:#666; font-weight:600;">'
-            "Paste or drop an image</p>"
-            '<p style="font-size:14px; color:#555; margin-top:8px;">'
-            "Ctrl+V from clipboard &nbsp;&middot;&nbsp; drag &amp; drop a file</p>"
-            "</div>"
+            f'<div style="text-align:center;">'
+            f'<p style="font-size:{Tokens.text_hero + 6}px; color:{Tokens.text_muted}; font-weight:600;">'
+            f'Paste or drop an image</p>'
+            f'<p style="font-size:{Tokens.text_lg}px; color:{Tokens.text_muted}; margin-top:8px; opacity:0.7;">'
+            f'Ctrl+V from clipboard &nbsp;&middot;&nbsp; drag &amp; drop a file</p>'
+            f'</div>'
         )
         self._placeholder = QGraphicsTextItem()
         self._placeholder.setHtml(html)
@@ -608,9 +609,11 @@ class OCRCanvas(QGraphicsView):
             return
         menu = QMenu(self)
         if len(sel) == 1:
-            menu.addAction("Delete", self.delete_requested.emit)
+            menu.addAction(Icons.delete(), "Delete", self.delete_requested.emit)
         else:
-            menu.addAction(f"Delete selected ({len(sel)})", self.delete_requested.emit)
+            menu.addAction(
+                Icons.delete(), f"Delete selected ({len(sel)})", self.delete_requested.emit
+            )
             _add_merge_permutation_actions(
                 menu, sorted(sel), lambda order: self.merge_requested.emit(order)
             )
