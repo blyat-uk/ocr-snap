@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from PyQt6.QtCore import QObject, QPointF, pyqtSignal
+from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QPixmap
 
 
@@ -13,17 +13,41 @@ def item_color(index: int) -> QColor:
     return QColor.fromHslF(hue / 360.0, 0.7, 0.6)
 
 
-def array_from_pixmap(pixmap: QPixmap) -> np.ndarray:
-    """Convert a QPixmap to an RGB uint8 numpy array (H, W, 3)."""
-    qimg = pixmap.toImage().convertToFormat(QImage.Format.Format_RGB888)
-    ptr = qimg.bits()
+def array_from_qimage(qimg: QImage) -> np.ndarray:
+    """Convert a QImage to an RGB uint8 numpy array (H, W, 3).
+
+    Workhorse used by ``array_from_pixmap`` and by the canvas's
+    direct-from-QImage paste path.
+    """
+    rgb = qimg.convertToFormat(QImage.Format.Format_RGB888)
+    ptr = rgb.bits()
     if ptr is None:
         raise RuntimeError("QImage.bits() returned None")
-    h, w = qimg.height(), qimg.width()
-    bpl = qimg.bytesPerLine()
+    h, w = rgb.height(), rgb.width()
+    bpl = rgb.bytesPerLine()
     ptr.setsize(bpl * h)
     buf = np.frombuffer(ptr, dtype=np.uint8).reshape(h, bpl)  # type: ignore[call-overload]
     return buf[:, : w * 3].reshape(h, w, 3).copy()
+
+
+def array_from_pixmap(
+    pixmap: QPixmap, *, max_long_side: int | None = None
+) -> np.ndarray:
+    """Convert a QPixmap to an RGB uint8 numpy array (H, W, 3).
+
+    If ``max_long_side`` is given and the pixmap's longer side
+    exceeds it, the pixmap's QImage is scaled down (smooth
+    transformation, aspect ratio preserved) before conversion.
+    """
+    qimg = pixmap.toImage()
+    if max_long_side is not None and max(qimg.width(), qimg.height()) > max_long_side:
+        qimg = qimg.scaled(
+            max_long_side,
+            max_long_side,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+    return array_from_qimage(qimg)
 
 
 @dataclass
