@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QCloseEvent, QKeyEvent, QKeySequence, QPixmap, QShortcut
+from PyQt6.QtCore import QEvent, QPropertyAnimation, QTimer, Qt
+from PyQt6.QtGui import (
+    QCloseEvent,
+    QEnterEvent,
+    QKeyEvent,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+)
 from PyQt6.QtWidgets import (
     QApplication,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QMainWindow,
     QMessageBox,
@@ -50,14 +58,18 @@ _SETTINGS_LINK_STYLE = """
 QPushButton {
     background: transparent;
     border: none;
-    color: #555;
-    font-size: 11px;
-    padding: 2px 10px;
+    color: #888;
+    font-size: 13px;
+    padding: 4px 14px;
 }
 QPushButton:hover {
-    color: #aaa;
+    color: #ddd;
 }
 """
+
+_SETTINGS_LINK_OPACITY_DIM = 0.3
+_SETTINGS_LINK_OPACITY_ACTIVE = 1.0
+_SETTINGS_LINK_FADE_MS = 220
 
 
 class MainWindow(QMainWindow):
@@ -111,7 +123,7 @@ class MainWindow(QMainWindow):
 
         footer = QWidget()
         footer_layout = QHBoxLayout(footer)
-        footer_layout.setContentsMargins(0, 2, 0, 2)
+        footer_layout.setContentsMargins(0, 6, 0, 14)
         footer_layout.addStretch()
         self._settings_link = QPushButton("Settings")
         self._settings_link.setFlat(True)
@@ -121,6 +133,15 @@ class MainWindow(QMainWindow):
         footer_layout.addWidget(self._settings_link)
         footer_layout.addStretch()
         central_layout.addWidget(footer)
+
+        # Dim the link when the mouse leaves the window; undim on entry.
+        self._settings_link_opacity = QGraphicsOpacityEffect(self._settings_link)
+        self._settings_link_opacity.setOpacity(_SETTINGS_LINK_OPACITY_DIM)
+        self._settings_link.setGraphicsEffect(self._settings_link_opacity)
+        self._settings_link_anim = QPropertyAnimation(
+            self._settings_link_opacity, b"opacity", self
+        )
+        self._settings_link_anim.setDuration(_SETTINGS_LINK_FADE_MS)
 
         self.setCentralWidget(central)
 
@@ -564,6 +585,20 @@ class MainWindow(QMainWindow):
                     "Device to CPU only, then restart OCR Snap."
                 ),
             )
+
+    def enterEvent(self, event: QEnterEvent | None) -> None:  # type: ignore[override]
+        self._fade_settings_link(_SETTINGS_LINK_OPACITY_ACTIVE)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QEvent | None) -> None:  # type: ignore[override]
+        self._fade_settings_link(_SETTINGS_LINK_OPACITY_DIM)
+        super().leaveEvent(event)
+
+    def _fade_settings_link(self, target: float) -> None:
+        self._settings_link_anim.stop()
+        self._settings_link_anim.setStartValue(self._settings_link_opacity.opacity())
+        self._settings_link_anim.setEndValue(target)
+        self._settings_link_anim.start()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         if event is not None and event.matches(QKeySequence.StandardKey.Paste):
