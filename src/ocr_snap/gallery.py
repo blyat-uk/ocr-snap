@@ -123,7 +123,7 @@ QPushButton:hover {{
         if self._processing and not self._active:
             self.setStyleSheet(_PROCESSING_STYLE.format())
         elif self._active:
-            self.setStyleSheet(_THUMB_STYLE.format(border="rgba(255, 190, 50, 0.8)"))
+            self.setStyleSheet(_THUMB_STYLE.format(border=Tokens.alert))
         else:
             self.setStyleSheet(_THUMB_STYLE.format(border="transparent"))
 
@@ -164,14 +164,14 @@ class GalleryPanel(QWidget):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         self._scroll_area.setStyleSheet(
-            "QScrollArea { border: none; background: transparent; }"
-            "QScrollBar:vertical {"
-            "  background: rgba(255,255,255,5); width: 5px; border-radius: 2px;"
-            "}"
-            "QScrollBar::handle:vertical {"
-            "  background: rgba(255,255,255,20); border-radius: 2px; min-height: 20px;"
-            "}"
-            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+            f"QScrollArea {{ border: none; background: transparent; }}"
+            f"QScrollBar:vertical {{"
+            f"  background: {Tokens.bg_surface}; width: 5px; border-radius: 2px;"
+            f"}}"
+            f"QScrollBar::handle:vertical {{"
+            f"  background: {Tokens.border_strong}; border-radius: 2px; min-height: 20px;"
+            f"}}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}"
         )
         layout.addWidget(self._scroll_area)
 
