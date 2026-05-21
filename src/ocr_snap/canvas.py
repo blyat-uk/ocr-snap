@@ -42,7 +42,8 @@ from PyQt6.QtWidgets import (
     QMenu,
 )
 
-from ocr_snap.models import OCRResults, SelectionModel, array_from_pixmap, item_color
+from ocr_snap.models import OCRResults, SelectionModel, array_from_qimage, item_color
+from ocr_snap.perf_settings import DISPLAY_LONG_SIDE
 from ocr_snap.theme import Icons, Tokens
 
 if TYPE_CHECKING:
@@ -272,6 +273,8 @@ class OCRCanvas(QGraphicsView):
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
 
         self._pixmap_item: QGraphicsPixmapItem | None = None
+        self._effective_long_side: int = DISPLAY_LONG_SIDE
+        self._bbox_scale: float = 1.0
         self._ocr_items: list[QGraphicsItem] = []
         self._placeholder: QGraphicsTextItem | None = None
         self._selection_model: SelectionModel | None = None
@@ -301,6 +304,13 @@ class OCRCanvas(QGraphicsView):
         self._sparks_per_tick = _SPARKS_PER_TICK_FULL
 
         self.show_placeholder()
+
+    def set_effective_long_side(self, value: int) -> None:
+        """The OCR-input long-side ceiling. Used by ``_load_qimage`` to
+        produce the OCR-size array. The display pixmap remains at
+        ``DISPLAY_LONG_SIDE``.
+        """
+        self._effective_long_side = value
 
     # ── Processing overlay ──────────────────────────────────────────
 
@@ -498,13 +508,16 @@ class OCRCanvas(QGraphicsView):
         if not results.items:
             return
 
+        ocr_w = results.image_width
+        display_w = self._pixmap_item.boundingRect().width() if self._pixmap_item else ocr_w
+        self._bbox_scale = display_w / ocr_w if ocr_w else 1.0
+
         for ocr_item in results.items:
-            bbox_rect = QRectF(
-                ocr_item.bbox[0],
-                ocr_item.bbox[1],
-                ocr_item.bbox[2] - ocr_item.bbox[0],
-                ocr_item.bbox[3] - ocr_item.bbox[1],
-            )
+            x1 = ocr_item.bbox[0] * self._bbox_scale
+            y1 = ocr_item.bbox[1] * self._bbox_scale
+            x2 = ocr_item.bbox[2] * self._bbox_scale
+            y2 = ocr_item.bbox[3] * self._bbox_scale
+            bbox_rect = QRectF(x1, y1, x2 - x1, y2 - y1)
 
             color = item_color(ocr_item.index)
             bbox_gfx = BBoxGraphicsItem(
@@ -556,12 +569,11 @@ class OCRCanvas(QGraphicsView):
         for ocr_item in items:  # type: ignore[union-attr]
             assert isinstance(ocr_item, OCRResultItem)
             text = ocr_item.translated_text or ocr_item.text
-            bbox_rect = QRectF(
-                ocr_item.bbox[0],
-                ocr_item.bbox[1],
-                ocr_item.bbox[2] - ocr_item.bbox[0],
-                ocr_item.bbox[3] - ocr_item.bbox[1],
-            )
+            x1 = ocr_item.bbox[0] * self._bbox_scale
+            y1 = ocr_item.bbox[1] * self._bbox_scale
+            x2 = ocr_item.bbox[2] * self._bbox_scale
+            y2 = ocr_item.bbox[3] * self._bbox_scale
+            bbox_rect = QRectF(x1, y1, x2 - x1, y2 - y1)
             overlay = TextOverlayItem(bbox_rect, text)
             overlay.setVisible(self._overlay_visible)
             self._scene.addItem(overlay)
@@ -602,8 +614,35 @@ class OCRCanvas(QGraphicsView):
 
         self._remove_placeholder()
 
-        pixmap = QPixmap.fromImage(qimg)
-        arr = array_from_pixmap(pixmap)
+        # Stage 1: scale to display size (so we can free the full-res original ASAP).
+        if max(qimg.width(), qimg.height()) > DISPLAY_LONG_SIDE:
+            display_qimg = qimg.scaled(
+                DISPLAY_LONG_SIDE,
+                DISPLAY_LONG_SIDE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        else:
+            display_qimg = qimg
+        # Drop the reference to the (potentially full-res) original.
+        del qimg
+
+        # Stage 2: scale down further for OCR, if needed.
+        if max(display_qimg.width(), display_qimg.height()) > self._effective_long_side:
+            ocr_qimg = display_qimg.scaled(
+                self._effective_long_side,
+                self._effective_long_side,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        else:
+            ocr_qimg = display_qimg
+
+        arr = array_from_qimage(ocr_qimg)
+        # ocr_qimg goes out of scope after the array copy.
+
+        pixmap = QPixmap.fromImage(display_qimg)
+
         if self._pixmap_item:
             self._scene.removeItem(self._pixmap_item)
         for gfx_item in self._ocr_items:

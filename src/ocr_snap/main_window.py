@@ -95,6 +95,7 @@ class MainWindow(QMainWindow):
         self._gallery.hide()
 
         self._canvas = OCRCanvas()
+        self._canvas.set_effective_long_side(self._ocr_engine.effective_long_side)
         self._canvas.set_animation_mode(self._app_settings.perf.processing_animation)
         self._sidebar = OCRSidebar()
         self._sidebar.setMinimumWidth(200)
@@ -327,7 +328,10 @@ class MainWindow(QMainWindow):
         if state is None:
             return
         if state.array is None:
-            state.array = array_from_pixmap(state.pixmap)
+            state.array = array_from_pixmap(
+                state.pixmap,
+                max_long_side=self._ocr_engine.effective_long_side,
+            )
         state.ocr_threshold = threshold
         state.ocr_running = True
         self._canvas.set_processing(True)
