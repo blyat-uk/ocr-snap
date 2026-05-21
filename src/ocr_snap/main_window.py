@@ -121,7 +121,8 @@ class MainWindow(QMainWindow):
         central_layout.setSpacing(0)
         central_layout.addWidget(self._splitter, stretch=1)
 
-        footer = QWidget()
+        self._footer = QWidget()
+        footer = self._footer
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(0, 6, 0, 14)
         footer_layout.addStretch()
@@ -189,6 +190,7 @@ class MainWindow(QMainWindow):
         self._images[image_id] = state
         self._image_order.append(image_id)
 
+        self._footer.hide()
         self._gallery.add_image(image_id, pixmap)
         self._gallery.set_processing(image_id, True)
 
@@ -553,6 +555,7 @@ class MainWindow(QMainWindow):
             self._sidebar.clear()
             self._sidebar.hide()
             self._gallery.hide()
+            self._footer.show()
             return
 
         if self._gallery.count < 2:
