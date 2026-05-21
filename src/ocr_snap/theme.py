@@ -53,3 +53,38 @@ class _Tokens:
 
 
 Tokens = _Tokens()
+
+
+from PyQt6.QtGui import QIcon
+
+import qtawesome as qta
+
+
+class Icons:
+    """Phosphor icon factories via qtawesome. Default color is text-primary."""
+
+    _DEFAULT_COLOR = Tokens.text_primary
+
+    @classmethod
+    def _i(cls, name: str, color: str | None = None) -> QIcon:
+        return qta.icon(name, color=color or cls._DEFAULT_COLOR)
+
+    @classmethod
+    def settings(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.gear", color)
+
+    @classmethod
+    def close(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.x", color)
+
+    @classmethod
+    def copy(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.copy", color)
+
+    @classmethod
+    def delete(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.trash", color)
+
+    @classmethod
+    def merge(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.git-merge", color)

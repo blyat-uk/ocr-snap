@@ -61,3 +61,46 @@ def test_tokens_is_frozen() -> None:
 
     with pytest.raises(FrozenInstanceError):
         Tokens.bg_base = "#000000"  # type: ignore[misc]
+
+
+from PyQt6.QtGui import QIcon
+
+from ocr_snap.theme import Icons
+
+
+def test_icons_settings_returns_valid_qicon(qapp) -> None:
+    icon = Icons.settings()
+    assert isinstance(icon, QIcon)
+    assert not icon.isNull()
+
+
+def test_icons_close_returns_valid_qicon(qapp) -> None:
+    icon = Icons.close()
+    assert isinstance(icon, QIcon)
+    assert not icon.isNull()
+
+
+def test_icons_copy_returns_valid_qicon(qapp) -> None:
+    icon = Icons.copy()
+    assert isinstance(icon, QIcon)
+    assert not icon.isNull()
+
+
+def test_icons_delete_returns_valid_qicon(qapp) -> None:
+    icon = Icons.delete()
+    assert isinstance(icon, QIcon)
+    assert not icon.isNull()
+
+
+def test_icons_merge_returns_valid_qicon(qapp) -> None:
+    icon = Icons.merge()
+    assert isinstance(icon, QIcon)
+    assert not icon.isNull()
+
+
+def test_icons_accepts_color_override(qapp) -> None:
+    """Each factory accepts a color string; both default and override produce icons."""
+    default = Icons.settings()
+    override = Icons.settings(color="#ff0000")
+    assert not default.isNull()
+    assert not override.isNull()
