@@ -5,52 +5,37 @@ from PyQt6.QtGui import QEnterEvent, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QLabel,
-    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from ocr_snap.theme import Icons, IconButton, Tokens
+
 _THUMB_WIDTH = 74
 _PANEL_WIDTH = 90
 _THUMB_MAX_HEIGHT = 100
 
-_THUMB_STYLE = """
-GalleryThumbnail {{
-    background: #252525;
-    border: 2px solid {border};
-    border-radius: 4px;
+_THUMB_STYLE = f"""
+GalleryThumbnail {{{{
+    background: {Tokens.bg_raised};
+    border: 2px solid {{border}};
+    border-radius: {Tokens.r_sm}px;
+}}}}
+"""
+
+_PANEL_STYLE = f"""
+GalleryPanel {{
+    background: {Tokens.bg_deepest};
+    border-right: 1px solid {Tokens.border};
 }}
 """
 
-_CLOSE_BTN_STYLE = """
-QPushButton {
-    background: rgba(0, 0, 0, 160);
-    color: #ccc;
-    border: none;
-    border-radius: 8px;
-    font-size: 11px;
-    font-weight: bold;
-    padding: 0;
-}
-QPushButton:hover {
-    background: rgba(200, 50, 50, 200);
-    color: #fff;
-}
-"""
-
-_PANEL_STYLE = """
-GalleryPanel {
-    background: #1a1a1a;
-    border-right: 1px solid #2a2a2a;
-}
-"""
-
-_PROCESSING_STYLE = """
+_PROCESSING_STYLE = f"""
 GalleryThumbnail {{
-    background: #252525;
-    border: 2px solid rgba(255, 190, 50, 0.6);
-    border-radius: 4px;
+    background: {Tokens.bg_raised};
+    border: 2px solid {Tokens.alert};
+    border-radius: {Tokens.r_sm}px;
 }}
 """
 
@@ -91,13 +76,34 @@ class GalleryThumbnail(QFrame):
         layout.addWidget(self._label)
 
         # Close button (top-right, hidden by default)
-        self._close_btn = QPushButton("\u00d7")
-        self._close_btn.setFixedSize(16, 16)
-        self._close_btn.setStyleSheet(_CLOSE_BTN_STYLE)
-        self._close_btn.setParent(self)
-        self._close_btn.move(self.width() - 18, 2)
+        # Pre-render both icon variants so hover can swap them without re-rasterising.
+        self._close_icon_default = Icons.close()
+        self._close_icon_hover = Icons.close(color=Tokens.text_emphasis)
+        self._close_btn = IconButton(
+            self._close_icon_default, tooltip="Remove", size=14, parent=self
+        )
+        self._close_btn.setStyleSheet(self._close_btn.styleSheet() + f"""
+QPushButton:hover {{
+    background: {Tokens.danger};
+}}
+""")
+        self._close_btn.move(self.width() - 24, 2)
         self._close_btn.hide()
         self._close_btn.clicked.connect(lambda: self.close_clicked.emit(self._image_id))
+        # Swap the icon to a white version on hover (qtawesome bakes color in at creation).
+        original_enter = self._close_btn.enterEvent
+        original_leave = self._close_btn.leaveEvent
+
+        def _enter(event, *, _orig=original_enter):
+            self._close_btn.setIcon(self._close_icon_hover)
+            _orig(event)
+
+        def _leave(event, *, _orig=original_leave):
+            self._close_btn.setIcon(self._close_icon_default)
+            _orig(event)
+
+        self._close_btn.enterEvent = _enter  # type: ignore[method-assign]
+        self._close_btn.leaveEvent = _leave  # type: ignore[method-assign]
 
         self._apply_style()
 
@@ -136,7 +142,7 @@ class GalleryThumbnail(QFrame):
 
     def resizeEvent(self, event: object) -> None:
         super().resizeEvent(event)  # type: ignore[arg-type]
-        self._close_btn.move(self.width() - 18, 2)
+        self._close_btn.move(self.width() - 24, 2)
 
 
 class GalleryPanel(QWidget):
