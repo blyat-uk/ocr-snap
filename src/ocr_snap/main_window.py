@@ -98,6 +98,8 @@ class MainWindow(QMainWindow):
         self._canvas.image_loaded.connect(self._on_image_loaded)
         self._ocr_engine.result_ready.connect(self._on_ocr_results)
         self._ocr_engine.error_occurred.connect(self._on_ocr_error)
+        self._ocr_engine.model_load_failed.connect(self._on_model_load_failed)
+        self._model_load_failure_shown = False
         self._canvas.merge_requested.connect(self._on_merge)
         self._sidebar.merge_requested.connect(self._on_merge)
         self._canvas.delete_requested.connect(self._on_delete)
@@ -499,6 +501,23 @@ class MainWindow(QMainWindow):
 
     def _on_ocr_error(self, message: str) -> None:
         self._status_bar.showMessage(f"OCR Error: {message}", 10000)
+
+    def _on_model_load_failed(self, message: str) -> None:
+        self._status_bar.showMessage(
+            f"OCR model failed to load: {message}", 0  # persistent
+        )
+        if not self._model_load_failure_shown:
+            self._model_load_failure_shown = True
+            QMessageBox.critical(
+                self,
+                "OCR engine could not load",
+                (
+                    "The OCR model failed to load:\n\n"
+                    f"{message}\n\n"
+                    "Open Settings to try a smaller model (Mobile) or switch the "
+                    "Device to CPU only, then restart OCR Snap."
+                ),
+            )
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         if event is not None and event.matches(QKeySequence.StandardKey.Paste):
