@@ -1,6 +1,63 @@
 from __future__ import annotations
 
+import pytest
+
+from ocr_snap.theme import Tokens
+
 
 def test_theme_module_imports() -> None:
     """Smoke test that the module file is parseable."""
     import ocr_snap.theme  # noqa: F401
+
+
+@pytest.mark.parametrize(
+    "field,expected",
+    [
+        # Colors
+        ("bg_deepest", "#0f1114"),
+        ("bg_base", "#14161a"),
+        ("bg_surface", "#1a1c20"),
+        ("bg_raised", "#1f2226"),
+        ("bg_hover", "#2a2d33"),
+        ("border", "#2d3036"),
+        ("border_strong", "#3a3d44"),
+        ("text_muted", "#888888"),
+        ("text_primary", "#d8d8d8"),
+        ("text_emphasis", "#ffffff"),
+        ("accent", "#4a9eff"),
+        ("accent_deep", "#1f5fa6"),
+        ("alert", "#ffcc55"),
+        ("danger", "#ff8a8a"),
+        ("success", "#8ad08a"),
+        ("overlay", "rgba(0,0,0,0.85)"),
+        # Spacing
+        ("sp_1", 4),
+        ("sp_2", 8),
+        ("sp_3", 12),
+        ("sp_4", 16),
+        ("sp_5", 24),
+        ("sp_6", 36),
+        # Radii
+        ("r_sm", 3),
+        ("r_md", 6),
+        ("r_lg", 10),
+        ("r_pill", 13),
+        # Type sizes
+        ("text_hero", 22),
+        ("text_lg", 14),
+        ("text_base", 12.5),
+        ("text_mono", 11),
+        ("text_eyebrow", 10),
+        # OCR Snap-specific
+        ("translation", "#7ab8e0"),
+    ],
+)
+def test_tokens_have_expected_values(field: str, expected) -> None:
+    assert getattr(Tokens, field) == expected
+
+
+def test_tokens_is_frozen() -> None:
+    from dataclasses import FrozenInstanceError
+
+    with pytest.raises(FrozenInstanceError):
+        Tokens.bg_base = "#000000"  # type: ignore[misc]
