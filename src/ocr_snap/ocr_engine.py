@@ -4,7 +4,6 @@ import collections
 import concurrent.futures
 import threading
 
-import cv2
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -30,7 +29,6 @@ class OCREngine(QObject):
         device = self._resolve_device()
         self.effective_long_side: int = effective_ocr_long_side(perf, device)
         self._resolved_device: str = device
-        self._max_long_side = perf.ocr_max_long_side
         self._ocr: object | None = None
         self._queue: collections.deque[tuple[str, np.ndarray, float]] = collections.deque()
         self._lock = threading.Lock()
@@ -120,12 +118,6 @@ class OCREngine(QObject):
             self._init_ocr()  # fallback if preload() was never called
 
             h, w = image.shape[:2]
-            scale = 1.0
-            if max(h, w) > self._max_long_side:
-                scale = self._max_long_side / max(h, w)
-                new_w = int(w * scale)
-                new_h = int(h * scale)
-                image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
             future = self._predict_pool.submit(self._ocr.predict, image)  # type: ignore[union-attr]
             try:
@@ -144,8 +136,6 @@ class OCREngine(QObject):
             polys = page["rec_polys"]
             boxes = page["rec_boxes"]
 
-            inv_scale = 1.0 / scale
-
             items = []
             idx = 0
             for text, score, poly, box in zip(texts, scores, polys, boxes):
@@ -156,12 +146,12 @@ class OCREngine(QObject):
                         index=idx,
                         text=text,
                         confidence=float(score),
-                        polygon=np.array(poly) * inv_scale,
+                        polygon=np.array(poly),
                         bbox=(
-                            float(box[0]) * inv_scale,
-                            float(box[1]) * inv_scale,
-                            float(box[2]) * inv_scale,
-                            float(box[3]) * inv_scale,
+                            float(box[0]),
+                            float(box[1]),
+                            float(box[2]),
+                            float(box[3]),
                         ),
                     )
                 )
