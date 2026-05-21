@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import requests
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ocr_snap.config import save_app_settings
 from ocr_snap.hardware_profile import detect
 from ocr_snap.perf_settings import (
     AppSettings,
@@ -263,7 +264,6 @@ class SettingsDialog(QDialog):
             self._settings.perf.device = self._device_combo.currentData()
 
         # Persist
-        from ocr_snap.config import save_app_settings
         save_app_settings(self._settings)
 
         # Emit signals

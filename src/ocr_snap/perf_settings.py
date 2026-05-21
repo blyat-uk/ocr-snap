@@ -72,12 +72,16 @@ _TIER_DEFAULTS: dict[str, OCRPerfSettings] = {
 def apply_tier(settings: AppSettings, tier: str) -> AppSettings:
     """Overwrite ``settings.perf`` with the named tier's defaults.
 
-    Returns the same settings instance for chaining.
+    Returns the same settings instance for chaining. If the settings
+    record detected CPU cores (>0) and that count is <4, caps
+    ``paddle_cpu_threads`` to 1 — same rule as ``from_profile``.
     """
     if tier not in _TIER_DEFAULTS:
         raise ValueError(f"unknown tier: {tier!r}")
     settings.hardware_tier = tier
     settings.perf = OCRPerfSettings(**asdict(_TIER_DEFAULTS[tier]))
+    if 0 < settings.detected_cpu_cores < 4:
+        settings.perf.paddle_cpu_threads = 1
     return settings
 
 

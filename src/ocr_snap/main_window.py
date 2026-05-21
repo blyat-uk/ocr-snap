@@ -7,6 +7,7 @@ from PyQt6.QtGui import QCloseEvent, QKeyEvent, QKeySequence, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
+    QMessageBox,
     QSplitter,
     QStatusBar,
 )
@@ -414,7 +415,6 @@ class MainWindow(QMainWindow):
         self._status_bar.showMessage("Settings saved.", 5000)
 
         if needs_restart["flag"]:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(
                 self,
                 "Restart required",

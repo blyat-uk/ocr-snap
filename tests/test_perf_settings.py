@@ -82,6 +82,19 @@ def test_from_profile_caps_cpu_threads_on_low_core_count() -> None:
     assert settings.perf.paddle_cpu_threads == 1  # forced down from tier default of 2
 
 
+def test_apply_tier_respects_cpu_cap() -> None:
+    settings = AppSettings(detected_cpu_cores=2)
+    apply_tier(settings, "high")
+    assert settings.hardware_tier == "high"
+    assert settings.perf.paddle_cpu_threads == 1  # capped from high's default of 0
+
+
+def test_apply_tier_skips_cap_when_cores_unknown() -> None:
+    settings = AppSettings()  # detected_cpu_cores defaults to 0
+    apply_tier(settings, "high")
+    assert settings.perf.paddle_cpu_threads == 0  # cap does not apply
+
+
 def test_from_profile_preserves_deepl_key() -> None:
     profile = HardwareProfile(total_ram_gb=8.0, cpu_cores=8, tier="medium")
     settings = from_profile(profile, deepl_key="abc-123:fx")
