@@ -54,7 +54,8 @@ _ZOOM_MAX = 10.0
 
 _FPS = 30
 _SCAN_SPEED = 0.008  # fraction of image height per tick
-_SPARKS_PER_TICK = 3
+_SPARKS_PER_TICK_FULL = 3
+_SPARKS_PER_TICK_MINIMAL = 0
 _SPARK_MAX_AGE = 25  # ticks
 _REVEAL_FADE_FRAMES = 8  # frames for item fade-in at _FPS
 
@@ -301,9 +302,20 @@ class OCRCanvas(QGraphicsView):
         self._anim_timer.setInterval(1000 // _FPS)
         self._anim_timer.timeout.connect(self._anim_tick)
 
+        self._animation_mode: str = "full"  # overridden by set_animation_mode
+        self._sparks_per_tick = _SPARKS_PER_TICK_FULL
+
         self.show_placeholder()
 
     # ── Processing overlay ──────────────────────────────────────────
+
+    def set_animation_mode(self, mode: str) -> None:
+        """mode is one of 'off', 'minimal', 'full'."""
+        self._animation_mode = mode
+        if mode == "full":
+            self._sparks_per_tick = _SPARKS_PER_TICK_FULL
+        else:  # "minimal" or "off"
+            self._sparks_per_tick = _SPARKS_PER_TICK_MINIMAL
 
     def set_processing(self, active: bool) -> None:
         if active and not self._processing and self._pixmap_item is not None:
@@ -315,14 +327,17 @@ class OCRCanvas(QGraphicsView):
         self._processing = True
         rect = self.sceneRect()
 
-        # Dim overlay
+        # Dim overlay (always shown so the user knows something's happening)
         self._overlay = QGraphicsRectItem(rect)
         self._overlay.setBrush(QBrush(QColor(0, 0, 0, 120)))
         self._overlay.setPen(QPen(Qt.PenStyle.NoPen))
         self._overlay.setZValue(50)
         self._scene.addItem(self._overlay)
 
-        # Scan line — a thin horizontal band with a glow gradient
+        if self._animation_mode == "off":
+            return  # no scan line, no sparks, no timer
+
+        # Scan line — kept for both minimal and full
         scan_h = rect.height() * 0.012
         self._scan_line = QGraphicsRectItem(rect.x(), rect.y(), rect.width(), scan_h)
         grad = QLinearGradient(0, 0, 0, scan_h)
@@ -369,7 +384,7 @@ class OCRCanvas(QGraphicsView):
             self._scan_line.setPos(0, scan_y - self._scan_line.rect().y())
 
         # Spawn sparks along the scan line
-        for _ in range(_SPARKS_PER_TICK):
+        for _ in range(self._sparks_per_tick):
             x = rect.x() + random.random() * w
             y = scan_y + random.gauss(0, h * 0.006)
             size = random.uniform(1.0, 6.0)
