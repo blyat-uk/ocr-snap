@@ -19,14 +19,18 @@ class TranslationEngine(QObject):
         self._pending: tuple[str, list[tuple[int, str]]] | None = None
         self._lock = threading.Lock()
 
-    def translate(self, image_id: str, items: list[tuple[int, str]]) -> None:
+    def set_api_key(self, key: str) -> None:
+        self._api_key = key
+
+    def translate(self, image_id: str, items: list[tuple[int, str]]) -> bool:
         if not self._api_key or not items:
-            return
+            return False
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 self._pending = (image_id, items)
-                return
+                return True
         self._start(image_id, items)
+        return True
 
     def _start(self, image_id: str, items: list[tuple[int, str]]) -> None:
         self._thread = threading.Thread(
@@ -58,8 +62,7 @@ class TranslationEngine(QObject):
                     continue
                 result[idx] = tr["text"]
 
-            if result:
-                self.translation_ready.emit(image_id, result)
+            self.translation_ready.emit(image_id, result)
         except Exception as e:
             self.error_occurred.emit(str(e))
         finally:

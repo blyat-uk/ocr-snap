@@ -6,6 +6,7 @@ from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QContextMenuEvent, QEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -267,6 +268,8 @@ class OCRSidebar(QWidget):
     delete_requested = pyqtSignal()
     confidence_filter_changed = pyqtSignal(float)
     reocr_requested = pyqtSignal(float)
+    overlay_toggled = pyqtSignal(bool)
+    settings_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -284,9 +287,21 @@ class OCRSidebar(QWidget):
 
         header = QLabel("OCR Results")
         header.setStyleSheet(
-            "font-size: 15px; font-weight: bold; color: #999;padding: 12px 14px 8px 14px; border: none;"
+            "font-size: 15px; font-weight: bold; color: #999;padding: 12px 4px 8px 14px; border: none;"
         )
         header_layout.addWidget(header)
+
+        self._settings_btn = QPushButton("⚙")
+        self._settings_btn.setFlat(True)
+        self._settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._settings_btn.setToolTip("Settings")
+        self._settings_btn.setFixedSize(24, 24)
+        self._settings_btn.setStyleSheet(
+            "QPushButton { color: #888; font-size: 16px; border: none; background: transparent; padding: 0; }"
+            "QPushButton:hover { color: #ddd; }"
+        )
+        self._settings_btn.clicked.connect(self.settings_requested)
+        header_layout.addWidget(self._settings_btn)
 
         self._translating_label = QLabel("Translating...")
         self._translating_label.setStyleSheet(
@@ -337,6 +352,21 @@ class OCRSidebar(QWidget):
 
         self._confidence_slider.valueChanged.connect(self._on_slider_value_changed)
         self._confidence_slider.sliderReleased.connect(self._on_slider_released)
+
+        # Overlay checkbox
+        overlay_layout = QHBoxLayout()
+        overlay_layout.setContentsMargins(14, 0, 14, 6)
+        self._overlay_checkbox = QCheckBox("Overlay")
+        self._overlay_checkbox.setStyleSheet(
+            "QCheckBox { color: #999; font-size: 13px; background: transparent; border: none; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; }"
+            "QCheckBox::indicator:unchecked { border: 1px solid #666; border-radius: 2px; background: transparent; }"
+            "QCheckBox::indicator:checked { border: 1px solid #7ab8e0; border-radius: 2px; background: #7ab8e0; }"
+        )
+        self._overlay_checkbox.toggled.connect(self.overlay_toggled.emit)
+        overlay_layout.addWidget(self._overlay_checkbox)
+        overlay_layout.addStretch()
+        layout.addLayout(overlay_layout)
 
         self._scroll_area = QScrollArea()
         self._scroll_area.setWidgetResizable(True)
@@ -472,6 +502,11 @@ class OCRSidebar(QWidget):
     def _on_slider_value_changed(self, value: int) -> None:
         self._confidence_value_label.setText(f"{value}%")
         self.confidence_filter_changed.emit(value / 100.0)
+
+    def set_overlay_checked(self, checked: bool) -> None:
+        self._overlay_checkbox.blockSignals(True)
+        self._overlay_checkbox.setChecked(checked)
+        self._overlay_checkbox.blockSignals(False)
 
     def _on_slider_released(self) -> None:
         value = self._confidence_slider.value() / 100.0

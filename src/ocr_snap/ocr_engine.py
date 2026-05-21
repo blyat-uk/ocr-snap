@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import collections
+import concurrent.futures
 import threading
 
+import cv2
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from ocr_snap.models import OCRResultItem, OCRResults
+
+_MAX_LONG_SIDE = 2000
+_PREDICT_TIMEOUT = 30  # seconds
+_PRELOAD_TIMEOUT = 60  # seconds
 
 
 class OCREngine(QObject):
@@ -20,6 +26,7 @@ class OCREngine(QObject):
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
         self._preload_done = threading.Event()
+        self._predict_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     def preload(self) -> None:
         """Start loading the OCR model in a background thread."""
@@ -65,12 +72,31 @@ class OCREngine(QObject):
 
     def _process_one(self, image_id: str, image: np.ndarray, min_confidence: float) -> None:
         try:
-            self._preload_done.wait()
+            if not self._preload_done.wait(timeout=_PRELOAD_TIMEOUT):
+                self.error_occurred.emit("OCR model loading timed out")
+                return
             self._init_ocr()  # fallback if preload() was never called
-            result = self._ocr.predict(image)  # type: ignore[union-attr]
+
+            # Downscale large images to avoid hangs
+            h, w = image.shape[:2]
+            scale = 1.0
+            if max(h, w) > _MAX_LONG_SIDE:
+                scale = _MAX_LONG_SIDE / max(h, w)
+                new_w = int(w * scale)
+                new_h = int(h * scale)
+                image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+            # Run prediction with timeout
+            future = self._predict_pool.submit(self._ocr.predict, image)  # type: ignore[union-attr]
+            try:
+                result = future.result(timeout=_PREDICT_TIMEOUT)
+            except concurrent.futures.TimeoutError:
+                self.error_occurred.emit("OCR timed out")
+                return
+
             if not result or result[0] is None:
                 self.result_ready.emit(
-                    image_id, OCRResults([], image.shape[1], image.shape[0])
+                    image_id, OCRResults([], w, h)
                 )
                 return
 
@@ -79,6 +105,8 @@ class OCREngine(QObject):
             scores = page["rec_scores"]
             polys = page["rec_polys"]
             boxes = page["rec_boxes"]
+
+            inv_scale = 1.0 / scale
 
             items = []
             idx = 0
@@ -90,19 +118,19 @@ class OCREngine(QObject):
                         index=idx,
                         text=text,
                         confidence=float(score),
-                        polygon=np.array(poly),
+                        polygon=np.array(poly) * inv_scale,
                         bbox=(
-                            float(box[0]),
-                            float(box[1]),
-                            float(box[2]),
-                            float(box[3]),
+                            float(box[0]) * inv_scale,
+                            float(box[1]) * inv_scale,
+                            float(box[2]) * inv_scale,
+                            float(box[3]) * inv_scale,
                         ),
                     )
                 )
                 idx += 1
 
             self.result_ready.emit(
-                image_id, OCRResults(items, image.shape[1], image.shape[0])
+                image_id, OCRResults(items, w, h)
             )
         except Exception as e:
             self.error_occurred.emit(str(e))
@@ -112,3 +140,4 @@ class OCREngine(QObject):
             self._queue.clear()
         if self._worker is not None:
             self._worker.join(timeout=5)
+        self._predict_pool.shutdown(wait=False)

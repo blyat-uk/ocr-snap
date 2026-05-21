@@ -15,12 +15,14 @@ from PyQt6.QtGui import (
     QDragEnterEvent,
     QDropEvent,
     QFont,
+    QFontMetricsF,
     QIcon,
     QImage,
     QKeyEvent,
     QKeySequence,
     QLinearGradient,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
     QRadialGradient,
@@ -190,6 +192,70 @@ class BBoxGraphicsItem(QGraphicsRectItem):
         super().mousePressEvent(event)
 
 
+class TextOverlayItem(QGraphicsItem):
+    """Renders OCR text inside a bounding box with translucent background."""
+
+    def __init__(self, rect: QRectF, text: str) -> None:
+        super().__init__()
+        self._rect = rect
+        self._text = text
+        self._font = QFont()
+        self._fit_font()
+        self.setZValue(15)
+
+    def set_text(self, text: str) -> None:
+        self._text = text
+        self._fit_font()
+        self.update()
+
+    def _fit_font(self) -> None:
+        """Choose a font size that fits the text inside the bounding box."""
+        w, h = self._rect.width(), self._rect.height()
+        # Start at ~70% of box height, scale down to fit width
+        size = max(h * 0.7, 4.0)
+        self._font.setPixelSize(int(size))
+        fm = QFontMetricsF(self._font)
+        text_width = fm.horizontalAdvance(self._text)
+        if text_width > 0 and text_width > w * 0.9:
+            size = size * (w * 0.9) / text_width
+        size = max(size, 4.0)
+        self._font.setPixelSize(int(size))
+
+    def boundingRect(self) -> QRectF:
+        return self._rect
+
+    def paint(
+        self,
+        painter: QPainter | None,
+        _option: object,
+        _widget: object = None,
+    ) -> None:
+        if painter is None:
+            return
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Translucent background
+        painter.setPen(QPen(Qt.PenStyle.NoPen))
+        painter.setBrush(QBrush(QColor(0, 0, 0, 140)))
+        painter.drawRect(self._rect)
+
+        # Build text path for outlined text
+        fm = QFontMetricsF(self._font)
+        text_rect = fm.boundingRect(self._rect, Qt.AlignmentFlag.AlignCenter, self._text)
+        path = QPainterPath()
+        path.addText(text_rect.x(), text_rect.y() + fm.ascent(), self._font, self._text)
+
+        # Black outline
+        painter.setPen(QPen(QColor(0, 0, 0), 3.0))
+        painter.setBrush(QBrush(Qt.GlobalColor.transparent))
+        painter.drawPath(path)
+
+        # White fill
+        painter.setPen(QPen(Qt.PenStyle.NoPen))
+        painter.setBrush(QBrush(QColor(255, 255, 255)))
+        painter.drawPath(path)
+
+
 class OCRCanvas(QGraphicsView):
     image_loaded = pyqtSignal(np.ndarray, QPixmap)
     merge_requested = pyqtSignal(list)
@@ -220,6 +286,10 @@ class OCRCanvas(QGraphicsView):
         self._fade_timer = QTimer(self)
         self._fade_timer.setInterval(1000 // _FPS)
         self._fade_timer.timeout.connect(self._fade_tick)
+
+        # Text overlay state
+        self._overlay_items: list[TextOverlayItem] = []
+        self._overlay_visible = False
 
         # Processing overlay state
         self._processing = False
@@ -390,6 +460,7 @@ class OCRCanvas(QGraphicsView):
         for gfx_item in self._ocr_items:
             self._scene.removeItem(gfx_item)
         self._ocr_items.clear()
+        self._clear_overlay_items()
         self._item_groups.clear()
         self._fading_groups.clear()
         self._fade_timer.stop()
@@ -427,6 +498,7 @@ class OCRCanvas(QGraphicsView):
         for gfx_item in self._ocr_items:
             self._scene.removeItem(gfx_item)
         self._ocr_items.clear()
+        self._clear_overlay_items()
         self._item_groups.clear()
         self._fading_groups.clear()
         self._fade_timer.stop()
@@ -452,6 +524,8 @@ class OCRCanvas(QGraphicsView):
             self._ocr_items.append(bbox_gfx)
             self._item_groups.append([bbox_gfx])
 
+        self.set_overlay_texts(results.items)
+
     def set_item_visible(self, index: int, visible: bool) -> None:
         if 0 <= index < len(self._ocr_items):
             self._ocr_items[index].setOpacity(1.0 if visible else 0.0)
@@ -475,6 +549,37 @@ class OCRCanvas(QGraphicsView):
         self._fading_groups = still_fading
         if not self._fading_groups:
             self._fade_timer.stop()
+
+    # ── Text overlay ─────────────────────────────────────────────
+
+    def _clear_overlay_items(self) -> None:
+        for item in self._overlay_items:
+            self._scene.removeItem(item)
+        self._overlay_items.clear()
+
+    def set_overlay_texts(self, items: list[object]) -> None:
+        """Create text overlay items from OCRResultItem list."""
+        from ocr_snap.models import OCRResultItem
+
+        self._clear_overlay_items()
+        for ocr_item in items:  # type: ignore[union-attr]
+            assert isinstance(ocr_item, OCRResultItem)
+            text = ocr_item.translated_text or ocr_item.text
+            bbox_rect = QRectF(
+                ocr_item.bbox[0],
+                ocr_item.bbox[1],
+                ocr_item.bbox[2] - ocr_item.bbox[0],
+                ocr_item.bbox[3] - ocr_item.bbox[1],
+            )
+            overlay = TextOverlayItem(bbox_rect, text)
+            overlay.setVisible(self._overlay_visible)
+            self._scene.addItem(overlay)
+            self._overlay_items.append(overlay)
+
+    def set_overlay_visible(self, visible: bool) -> None:
+        self._overlay_visible = visible
+        for item in self._overlay_items:
+            item.setVisible(visible)
 
     # ── Context menu ──────────────────────────────────────────────
 
@@ -520,6 +625,7 @@ class OCRCanvas(QGraphicsView):
         for gfx_item in self._ocr_items:
             self._scene.removeItem(gfx_item)
         self._ocr_items.clear()
+        self._clear_overlay_items()
 
         pixmap_item = self._scene.addPixmap(pixmap)
         assert pixmap_item is not None

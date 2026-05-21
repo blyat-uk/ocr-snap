@@ -13,10 +13,12 @@ from PyQt6.QtWidgets import (
 
 import numpy as np
 
+from ocr_snap import config
 from ocr_snap.canvas import OCRCanvas
 from ocr_snap.gallery import GalleryPanel
 from ocr_snap.models import ImageState, OCRResultItem, OCRResults
 from ocr_snap.ocr_engine import OCREngine
+from ocr_snap.settings_dialog import SettingsDialog
 from ocr_snap.sidebar import OCRSidebar
 from ocr_snap.translator import TranslationEngine
 
@@ -101,6 +103,8 @@ class MainWindow(QMainWindow):
         self._translator.error_occurred.connect(self._on_translation_error)
         self._sidebar.confidence_filter_changed.connect(self._on_confidence_filter_changed)
         self._sidebar.reocr_requested.connect(self._on_reocr_requested)
+        self._sidebar.overlay_toggled.connect(self._on_overlay_toggled)
+        self._sidebar.settings_requested.connect(self._on_settings_requested)
         self._gallery.image_selected.connect(self._on_gallery_select)
         self._gallery.image_removed.connect(self._on_gallery_remove)
 
@@ -163,6 +167,8 @@ class MainWindow(QMainWindow):
             self._sidebar.set_ocr_threshold(state.ocr_threshold)
             self._sidebar.set_confidence_filter(int(state.confidence_filter * 100))
             self._apply_confidence_filter(state)
+            self._sidebar.set_overlay_checked(state.overlay_enabled)
+            self._canvas.set_overlay_visible(state.overlay_enabled)
         else:
             self._sidebar.clear()
             self._sidebar.show()
@@ -193,6 +199,8 @@ class MainWindow(QMainWindow):
 
             # Update sidebar's OCR threshold
             self._sidebar.set_ocr_threshold(state.ocr_threshold)
+
+            self._canvas.set_overlay_visible(state.overlay_enabled)
 
             if results.items:
                 self._sidebar.show()
@@ -314,6 +322,8 @@ class MainWindow(QMainWindow):
         self._canvas.set_ocr_results(new_results, state.selection_model, visible=True)
         self._sidebar.set_results(new_results, state.selection_model, visible=True)
 
+        self._canvas.set_overlay_visible(state.overlay_enabled)
+
         count = len(new_results.items)
         self._status_bar.showMessage(
             f"Merged {len(sel_items)} items — {count} region{'s' if count != 1 else ''} remaining",
@@ -353,6 +363,8 @@ class MainWindow(QMainWindow):
         self._canvas.set_ocr_results(new_results, state.selection_model, visible=True)
         self._sidebar.set_results(new_results, state.selection_model, visible=True)
 
+        self._canvas.set_overlay_visible(state.overlay_enabled)
+
         deleted_count = len(selected)
         self._status_bar.showMessage(
             f"Deleted {deleted_count} item{'s' if deleted_count != 1 else ''}",
@@ -362,6 +374,30 @@ class MainWindow(QMainWindow):
         if new_results.items:
             self._start_translation(self._active_id)
 
+    # ── Overlay ─────────────────────────────────────────────────────
+
+    def _on_overlay_toggled(self, checked: bool) -> None:
+        if self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is not None:
+            state.overlay_enabled = checked
+        self._canvas.set_overlay_visible(checked)
+
+    # ── Settings ────────────────────────────────────────────────────
+
+    def _on_settings_requested(self) -> None:
+        current = config.load_config().get("deepl_api_key", "") or ""
+        dialog = SettingsDialog(current, self)
+        if dialog.exec() != SettingsDialog.DialogCode.Accepted:
+            return
+        new_key = dialog.saved_key()
+        if new_key is None:
+            return
+        config.set_deepl_key(new_key)
+        self._translator.set_api_key(new_key)
+        self._status_bar.showMessage("DeepL API key saved.", 5000)
+
     # ── Translation ─────────────────────────────────────────────────
 
     def _start_translation(self, image_id: str) -> None:
@@ -369,10 +405,11 @@ class MainWindow(QMainWindow):
         if state is None or state.ocr_results is None:
             return
         items = [(it.index, it.text) for it in state.ocr_results.items]
+        if not self._translator.translate(image_id, items):
+            return
         state.translation_running = True
         if image_id == self._active_id:
             self._sidebar.set_translating(True)
-        self._translator.translate(image_id, items)
 
     def _on_translation_results(
         self, image_id: str, translations: dict[int, str]
@@ -389,6 +426,8 @@ class MainWindow(QMainWindow):
         if image_id == self._active_id:
             self._sidebar.update_translations(translations)
             self._sidebar.set_translating(False)
+            if state.overlay_enabled:
+                self._canvas.set_overlay_texts(state.ocr_results.items)
 
     def _on_translation_error(self, message: str) -> None:
         # Mark active image as not translating

@@ -43,6 +43,7 @@ class ImageState:
         self.view_center: QPointF | None = None
         self.confidence_filter: float = 0.5
         self.ocr_threshold: float = 0.5
+        self.overlay_enabled: bool = False
 
 
 class SelectionModel(QObject):
