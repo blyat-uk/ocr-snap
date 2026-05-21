@@ -99,3 +99,28 @@ def test_from_profile_preserves_deepl_key() -> None:
     profile = HardwareProfile(total_ram_gb=8.0, cpu_cores=8, tier="medium")
     settings = from_profile(profile, deepl_key="abc-123:fx")
     assert settings.deepl_api_key == "abc-123:fx"
+
+
+@pytest.mark.parametrize(
+    "ocr_max,device,expected",
+    [
+        (2000, "cpu", 1600),   # capped to _CPU_LONG_SIDE_CAP
+        (1280, "cpu", 1280),   # below cap, unchanged
+        (1600, "cpu", 1600),   # at cap exactly
+        (2400, "cpu", 1600),   # well above, capped
+        (2000, "gpu", 2000),   # gpu: no cap
+        (2400, "gpu", 2400),
+        (1280, "gpu", 1280),
+    ],
+)
+def test_effective_ocr_long_side(ocr_max: int, device: str, expected: int) -> None:
+    from ocr_snap.perf_settings import OCRPerfSettings, effective_ocr_long_side
+
+    perf = OCRPerfSettings(ocr_max_long_side=ocr_max)
+    assert effective_ocr_long_side(perf, device) == expected
+
+
+def test_display_long_side_is_2400() -> None:
+    from ocr_snap.perf_settings import DISPLAY_LONG_SIDE
+
+    assert DISPLAY_LONG_SIDE == 2400

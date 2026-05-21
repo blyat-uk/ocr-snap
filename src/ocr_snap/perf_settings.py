@@ -11,6 +11,9 @@ from typing import Literal
 
 from ocr_snap.hardware_profile import HardwareProfile
 
+DISPLAY_LONG_SIDE: int = 2400
+_CPU_LONG_SIDE_CAP: int = 1600
+
 
 @dataclass
 class OCRPerfSettings:
@@ -67,6 +70,18 @@ _TIER_DEFAULTS: dict[str, OCRPerfSettings] = {
         paddle_cpu_threads=0,
     ),
 }
+
+
+def effective_ocr_long_side(perf: OCRPerfSettings, device: str) -> int:
+    """OCR-input long-side ceiling for the resolved device.
+
+    Caps the OCR input at ``_CPU_LONG_SIDE_CAP`` on CPU to keep
+    PaddleOCR's activation memory bounded. On GPU, returns the
+    user's configured ``ocr_max_long_side`` unchanged.
+    """
+    if device == "cpu":
+        return min(perf.ocr_max_long_side, _CPU_LONG_SIDE_CAP)
+    return perf.ocr_max_long_side
 
 
 def apply_tier(settings: AppSettings, tier: str) -> AppSettings:
