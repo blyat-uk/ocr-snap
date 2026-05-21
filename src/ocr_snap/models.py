@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QPixmap
 
 
@@ -76,8 +76,6 @@ class ImageState:
         self.ocr_results: OCRResults | None = None
         self.ocr_running: bool = False
         self.translation_running: bool = False
-        self.view_zoom: float | None = None
-        self.view_center: QPointF | None = None
         self.confidence_filter: float = 0.5
         self.ocr_threshold: float = 0.5
         self.overlay_enabled: bool = False

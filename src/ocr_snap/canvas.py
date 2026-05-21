@@ -27,7 +27,6 @@ from PyQt6.QtGui import (
     QPixmap,
     QRadialGradient,
     QResizeEvent,
-    QWheelEvent,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -48,10 +47,6 @@ from ocr_snap.theme import Icons, Tokens
 
 if TYPE_CHECKING:
     from ocr_snap.models import ImageState
-
-_ZOOM_FACTOR = 1.15
-_ZOOM_MIN = 0.1
-_ZOOM_MAX = 10.0
 
 _FPS = 30
 _SCAN_SPEED = 0.008  # fraction of image height per tick
@@ -276,7 +271,6 @@ class OCRCanvas(QGraphicsView):
         self.setAcceptDrops(True)
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
 
-        self._zoom = 1.0
         self._pixmap_item: QGraphicsPixmapItem | None = None
         self._ocr_items: list[QGraphicsItem] = []
         self._placeholder: QGraphicsTextItem | None = None
@@ -452,20 +446,6 @@ class OCRCanvas(QGraphicsView):
             self._scene.removeItem(self._placeholder)
             self._placeholder = None
 
-    # ── View state save/restore ──────────────────────────────────────
-
-    def save_view_state(self) -> tuple[float, QPointF]:
-        vp = self.viewport()
-        assert vp is not None
-        center = self.mapToScene(vp.rect().center())
-        return (self._zoom, center)
-
-    def restore_view_state(self, zoom: float, center: QPointF) -> None:
-        self.resetTransform()
-        self._zoom = zoom
-        self.scale(zoom, zoom)
-        self.centerOn(center)
-
     # ── Load image state (switch without emitting image_loaded) ──────
 
     def load_image_state(self, state: ImageState) -> None:
@@ -491,12 +471,7 @@ class OCRCanvas(QGraphicsView):
         self._pixmap_item = pixmap_item
         self.setSceneRect(QRectF(state.pixmap.rect().toRectF()))
 
-        # Restore view transform or fit
-        if state.view_zoom is not None and state.view_center is not None:
-            self.restore_view_state(state.view_zoom, state.view_center)
-        else:
-            self.fitInView(pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
-            self._zoom = self.transform().m11()
+        self.fitInView(pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
         # Restore OCR overlays if results exist
         if state.ocr_results is not None:
@@ -642,7 +617,6 @@ class OCRCanvas(QGraphicsView):
         self._pixmap_item = pixmap_item
         self.setSceneRect(QRectF(pixmap.rect().toRectF()))
         self.fitInView(pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
-        self._zoom = self.transform().m11()
 
         self.image_loaded.emit(arr, pixmap)
 
@@ -650,7 +624,6 @@ class OCRCanvas(QGraphicsView):
         super().resizeEvent(event)
         if self._pixmap_item is not None:
             self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
-            self._zoom = self.transform().m11()
 
     # ── Input events ────────────────────────────────────────────────
 
@@ -668,24 +641,6 @@ class OCRCanvas(QGraphicsView):
         qimg = QImage(path)
         if not qimg.isNull():
             self._load_qimage(qimg)
-
-    def wheelEvent(self, event: QWheelEvent | None) -> None:
-        if (
-            event is not None
-            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        ):
-            if event.angleDelta().y() > 0:
-                factor = _ZOOM_FACTOR
-            else:
-                factor = 1 / _ZOOM_FACTOR
-
-            new_zoom = self._zoom * factor
-            if _ZOOM_MIN <= new_zoom <= _ZOOM_MAX:
-                self._zoom = new_zoom
-                self.scale(factor, factor)
-            event.accept()
-        else:
-            super().wheelEvent(event)
 
     def dragEnterEvent(self, event: QDragEnterEvent | None) -> None:
         mime = event.mimeData() if event is not None else None

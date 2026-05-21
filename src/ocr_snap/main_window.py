@@ -209,13 +209,6 @@ class MainWindow(QMainWindow):
         if state is None:
             return
 
-        # Save outgoing image's view state
-        if self._active_id is not None and self._active_id in self._images:
-            outgoing = self._images[self._active_id]
-            zoom, center = self._canvas.save_view_state()
-            outgoing.view_zoom = zoom
-            outgoing.view_center = center
-
         # Stop reveal timer
         self._reveal_timer.stop()
 
