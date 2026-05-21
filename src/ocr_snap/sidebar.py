@@ -253,7 +253,6 @@ class OCRSidebar(QWidget):
     confidence_filter_changed = pyqtSignal(float)
     reocr_requested = pyqtSignal(float)
     overlay_toggled = pyqtSignal(bool)
-    settings_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -276,10 +275,6 @@ class OCRSidebar(QWidget):
             f"{Tokens.sp_2}px {Tokens.sp_4}px; border: none;"
         )
         header_layout.addWidget(header)
-
-        self._settings_btn = IconButton(Icons.settings(), tooltip="Settings", size=18)
-        self._settings_btn.clicked.connect(self.settings_requested)
-        header_layout.addWidget(self._settings_btn)
 
         self._translating_label = StatusChip("Translating…", state="translation")
         self._translating_label.hide()

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from PyQt6.QtCore import QEvent, QPropertyAnimation, QTimer, Qt
+from PyQt6.QtCore import QSize, QTimer, Qt
 from PyQt6.QtGui import (
     QCloseEvent,
-    QEnterEvent,
     QKeyEvent,
     QKeySequence,
     QPixmap,
@@ -13,15 +12,11 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QApplication,
-    QGraphicsOpacityEffect,
-    QHBoxLayout,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QSplitter,
     QStatusBar,
-    QVBoxLayout,
-    QWidget,
 )
 
 import numpy as np
@@ -33,7 +28,7 @@ from ocr_snap.ocr_engine import OCREngine
 from ocr_snap.perf_settings import AppSettings
 from ocr_snap.settings_dialog import SettingsDialog
 from ocr_snap.sidebar import OCRSidebar
-from ocr_snap.theme import Tokens
+from ocr_snap.theme import Icons, Tokens
 from ocr_snap.translator import TranslationEngine
 
 _APP_STYLE = f"""
@@ -55,22 +50,18 @@ QSplitter::handle:hover {{
 }}
 """
 
-_SETTINGS_LINK_STYLE = f"""
+_STATUS_SETTINGS_STYLE = f"""
 QPushButton {{
     background: transparent;
     border: none;
     color: {Tokens.text_muted};
-    font-size: {Tokens.text_base}px;
-    padding: {Tokens.sp_1}px {Tokens.sp_3}px;
+    font-size: {Tokens.text_eyebrow}px;
+    padding: 2px 8px;
 }}
 QPushButton:hover {{
     color: {Tokens.text_emphasis};
 }}
 """
-
-_SETTINGS_LINK_OPACITY_DIM = 0.3
-_SETTINGS_LINK_OPACITY_ACTIVE = 1.0
-_SETTINGS_LINK_FADE_MS = 220
 
 
 class MainWindow(QMainWindow):
@@ -114,39 +105,7 @@ class MainWindow(QMainWindow):
         self._splitter.setCollapsible(2, False)
         self._splitter.setSizes([0, 880, 320])
 
-        # Central widget = splitter + footer row with a quiet Settings link.
-        # The link is reachable before any image is loaded (the sidebar
-        # gear, by contrast, is hidden until the sidebar appears).
-        central = QWidget()
-        central_layout = QVBoxLayout(central)
-        central_layout.setContentsMargins(0, 0, 0, 0)
-        central_layout.setSpacing(0)
-        central_layout.addWidget(self._splitter, stretch=1)
-
-        self._footer = QWidget()
-        footer = self._footer
-        footer_layout = QHBoxLayout(footer)
-        footer_layout.setContentsMargins(0, 6, 0, 14)
-        footer_layout.addStretch()
-        self._settings_link = QPushButton("Settings")
-        self._settings_link.setFlat(True)
-        self._settings_link.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._settings_link.setStyleSheet(_SETTINGS_LINK_STYLE)
-        self._settings_link.clicked.connect(self._on_settings_requested)
-        footer_layout.addWidget(self._settings_link)
-        footer_layout.addStretch()
-        central_layout.addWidget(footer)
-
-        # Dim the link when the mouse leaves the window; undim on entry.
-        self._settings_link_opacity = QGraphicsOpacityEffect(self._settings_link)
-        self._settings_link_opacity.setOpacity(_SETTINGS_LINK_OPACITY_DIM)
-        self._settings_link.setGraphicsEffect(self._settings_link_opacity)
-        self._settings_link_anim = QPropertyAnimation(
-            self._settings_link_opacity, b"opacity", self
-        )
-        self._settings_link_anim.setDuration(_SETTINGS_LINK_FADE_MS)
-
-        self.setCentralWidget(central)
+        self.setCentralWidget(self._splitter)
 
         QShortcut(
             QKeySequence(QKeySequence.StandardKey.Preferences),
@@ -154,9 +113,18 @@ class MainWindow(QMainWindow):
             activated=self._on_settings_requested,
         )
 
-        # Status bar
+        # Status bar + permanent Settings button on its right side.
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
+
+        self._status_settings_btn = QPushButton("Settings")
+        self._status_settings_btn.setIcon(Icons.settings(color=Tokens.text_muted))
+        self._status_settings_btn.setIconSize(QSize(12, 12))
+        self._status_settings_btn.setFlat(True)
+        self._status_settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._status_settings_btn.setStyleSheet(_STATUS_SETTINGS_STYLE)
+        self._status_settings_btn.clicked.connect(self._on_settings_requested)
+        self._status_bar.addPermanentWidget(self._status_settings_btn)
 
         # Reveal animation state
         self._reveal_timer = QTimer(self)
@@ -179,7 +147,6 @@ class MainWindow(QMainWindow):
         self._sidebar.confidence_filter_changed.connect(self._on_confidence_filter_changed)
         self._sidebar.reocr_requested.connect(self._on_reocr_requested)
         self._sidebar.overlay_toggled.connect(self._on_overlay_toggled)
-        self._sidebar.settings_requested.connect(self._on_settings_requested)
         self._gallery.image_selected.connect(self._on_gallery_select)
         self._gallery.image_removed.connect(self._on_gallery_remove)
 
@@ -192,7 +159,6 @@ class MainWindow(QMainWindow):
         self._images[image_id] = state
         self._image_order.append(image_id)
 
-        self._footer.hide()
         self._gallery.add_image(image_id, pixmap)
         self._gallery.set_processing(image_id, True)
 
@@ -553,7 +519,6 @@ class MainWindow(QMainWindow):
             self._sidebar.clear()
             self._sidebar.hide()
             self._gallery.hide()
-            self._footer.show()
             return
 
         if self._gallery.count < 2:
@@ -586,20 +551,6 @@ class MainWindow(QMainWindow):
                     "Device to CPU only, then restart OCR Snap."
                 ),
             )
-
-    def enterEvent(self, event: QEnterEvent | None) -> None:  # type: ignore[override]
-        self._fade_settings_link(_SETTINGS_LINK_OPACITY_ACTIVE)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event: QEvent | None) -> None:  # type: ignore[override]
-        self._fade_settings_link(_SETTINGS_LINK_OPACITY_DIM)
-        super().leaveEvent(event)
-
-    def _fade_settings_link(self, target: float) -> None:
-        self._settings_link_anim.stop()
-        self._settings_link_anim.setStartValue(self._settings_link_opacity.opacity())
-        self._settings_link_anim.setEndValue(target)
-        self._settings_link_anim.start()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         if event is not None and event.matches(QKeySequence.StandardKey.Paste):
