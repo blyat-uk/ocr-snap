@@ -33,38 +33,39 @@ from ocr_snap.ocr_engine import OCREngine
 from ocr_snap.perf_settings import AppSettings
 from ocr_snap.settings_dialog import SettingsDialog
 from ocr_snap.sidebar import OCRSidebar
+from ocr_snap.theme import Tokens
 from ocr_snap.translator import TranslationEngine
 
-_APP_STYLE = """
-QMainWindow, QWidget {
-    background-color: #1e1e1e;
-    color: #cccccc;
-}
-QStatusBar {
-    background: #181818;
-    color: #888;
-    font-size: 12px;
-    border-top: 1px solid #2a2a2a;
-}
-QSplitter::handle {
-    background: #2a2a2a;
-}
-QSplitter::handle:hover {
-    background: #3a3a3a;
-}
+_APP_STYLE = f"""
+QMainWindow, QWidget {{
+    background-color: {Tokens.bg_base};
+    color: {Tokens.text_primary};
+}}
+QStatusBar {{
+    background: {Tokens.bg_deepest};
+    color: {Tokens.text_muted};
+    font-size: {Tokens.text_base}px;
+    border-top: 1px solid {Tokens.border};
+}}
+QSplitter::handle {{
+    background: {Tokens.border};
+}}
+QSplitter::handle:hover {{
+    background: {Tokens.bg_hover};
+}}
 """
 
-_SETTINGS_LINK_STYLE = """
-QPushButton {
+_SETTINGS_LINK_STYLE = f"""
+QPushButton {{
     background: transparent;
     border: none;
-    color: #888;
-    font-size: 13px;
-    padding: 4px 14px;
-}
-QPushButton:hover {
-    color: #ddd;
-}
+    color: {Tokens.text_muted};
+    font-size: {Tokens.text_base}px;
+    padding: {Tokens.sp_1}px {Tokens.sp_3}px;
+}}
+QPushButton:hover {{
+    color: {Tokens.text_emphasis};
+}}
 """
 
 _SETTINGS_LINK_OPACITY_DIM = 0.3
