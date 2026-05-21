@@ -115,13 +115,10 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-> **Note on GPU support:** The default dependency is `paddlepaddle-gpu`, which
-> requires CUDA. If you do not have a CUDA-capable GPU, install the CPU version
-> instead:
->
-> ```bash
-> pip install paddlepaddle
-> ```
+> **Note on GPU support:** OCR Snap auto-detects GPU support at startup and
+> chooses CPU or GPU based on your hardware profile. If you're on a low-VRAM
+> GPU and the app crashes after pasting, open Settings → OCR engine and set
+> Device to "CPU only", or switch Profile to Performance.
 
 ## Configuration
 
@@ -172,6 +169,10 @@ Or run directly without activating the environment:
 6. **Navigate** -- use `Ctrl+Scroll` to zoom, click and drag to pan
 7. **Multiple images** -- paste or drop additional images; a thumbnail gallery
    appears for switching between them
+8. **Pick a hardware profile** — open Settings (gear icon in the sidebar)
+   to choose Performance / Balanced / Quality. On first run the app picks
+   one based on detected RAM. Use Performance on low-VRAM GPUs or
+   ≤ 6 GB RAM machines.
 
 ## License
 
