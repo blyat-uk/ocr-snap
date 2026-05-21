@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
 
 import numpy as np
 
-from ocr_snap import config
 from ocr_snap.canvas import OCRCanvas
 from ocr_snap.gallery import GalleryPanel
 from ocr_snap.models import ImageState, OCRResultItem, OCRResults, array_from_pixmap
@@ -394,16 +393,33 @@ class MainWindow(QMainWindow):
     # ── Settings ────────────────────────────────────────────────────
 
     def _on_settings_requested(self) -> None:
-        current = config.load_config().get("deepl_api_key", "") or ""
-        dialog = SettingsDialog(current, self)
+        dialog = SettingsDialog(self._app_settings, self)
+        needs_restart = {"flag": False}
+
+        def on_tier(_tier: str) -> None:
+            needs_restart["flag"] = True
+
+        def on_perf_changed() -> None:
+            needs_restart["flag"] = True
+
+        dialog.tier_overridden.connect(on_tier)
+        dialog.perf_changed.connect(on_perf_changed)
+
         if dialog.exec() != SettingsDialog.DialogCode.Accepted:
             return
-        new_key = dialog.saved_key()
-        if new_key is None:
-            return
-        config.set_deepl_key(new_key)
-        self._translator.set_api_key(new_key)
-        self._status_bar.showMessage("DeepL API key saved.", 5000)
+
+        # Always apply the live changes
+        self._translator.set_api_key(self._app_settings.deepl_api_key)
+        self._canvas.set_animation_mode(self._app_settings.perf.processing_animation)
+        self._status_bar.showMessage("Settings saved.", 5000)
+
+        if needs_restart["flag"]:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self,
+                "Restart required",
+                "Model or device changes will take effect after you restart OCR Snap.",
+            )
 
     # ── Translation ─────────────────────────────────────────────────
 
