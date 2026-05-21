@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
-    QPushButton,
     QScrollArea,
     QSlider,
     QVBoxLayout,
@@ -21,36 +20,19 @@ from PyQt6.QtWidgets import (
 
 from ocr_snap.canvas import _add_merge_permutation_actions
 from ocr_snap.models import OCRResults, SelectionModel, item_color
+from ocr_snap.theme import Icons, IconButton, StatusChip, Tokens
 
-_ENTRY_STYLE = """
-SidebarEntry {{
-    background-color: {bg};
-    border-radius: 6px;
-    border: 3px solid {border};
-}}
+_ENTRY_STYLE = f"""
+SidebarEntry {{{{
+    background-color: {{bg}};
+    border-radius: {Tokens.r_md}px;
+    border: 3px solid {{border}};
+}}}}
 """
-_BG_NORMAL = "rgba(255, 255, 255, 6)"
-_BG_HOVER = "rgba(255, 255, 255, 14)"
+_BG_NORMAL = Tokens.bg_surface
+_BG_HOVER = Tokens.bg_raised
 
-_COPY_BTN_STYLE = """
-QPushButton {
-    background: rgba(255, 255, 255, 10);
-    border: 1px solid rgba(255, 255, 255, 15);
-    border-radius: 4px;
-    color: #aaa;
-    padding: 2px 8px;
-    font-size: 13px;
-}
-QPushButton:hover {
-    background: rgba(255, 255, 255, 20);
-    color: #ddd;
-}
-QPushButton:pressed {
-    background: rgba(255, 255, 255, 30);
-}
-"""
-
-_SEPARATOR_STYLE = "background: rgba(255, 255, 255, 15); border: none; max-height: 1px;"
+_SEPARATOR_STYLE = f"background: {Tokens.border}; border: none; max-height: 1px;"
 
 
 class _TextZone(QWidget):
@@ -70,9 +52,7 @@ class _TextZone(QWidget):
         self._content_layout.setSpacing(2)
         layout.addLayout(self._content_layout, stretch=1)
 
-        self._copy_btn = QPushButton("Copy")
-        self._copy_btn.setFixedSize(50, 22)
-        self._copy_btn.setStyleSheet(_COPY_BTN_STYLE)
+        self._copy_btn = IconButton(Icons.copy(), tooltip="Copy", size=14)
         self._copy_btn.clicked.connect(copy_callback)
         self._copy_btn.hide()
         layout.addWidget(self._copy_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
@@ -128,14 +108,16 @@ class SidebarEntry(QFrame):
         idx_label.setFixedSize(28, 28)
         idx_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         idx_label.setStyleSheet(
-            "background: rgba(255,255,255,10); border-radius: 14px;color: #888; font-weight: bold; font-size: 12px;"
+            f"background: {Tokens.bg_raised}; border-radius: 14px; "
+            f"color: {Tokens.text_muted}; font-weight: bold; font-size: {Tokens.text_base}px;"
         )
         badge_layout.addWidget(idx_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         conf_label = QLabel(f"{confidence:.0%}")
         conf_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         conf_label.setStyleSheet(
-            "color: #777; font-size: 11px; background: transparent; border: none;"
+            f"color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px; "
+            f"background: transparent; border: none;"
         )
         badge_layout.addWidget(conf_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
@@ -151,7 +133,8 @@ class SidebarEntry(QFrame):
         text_label = QLabel(text)
         text_label.setWordWrap(True)
         text_label.setStyleSheet(
-            "color: #ddd; font-size: 15px; background: transparent; border: none; min-height: 25px;"
+            f"color: {Tokens.text_primary}; font-size: {Tokens.text_lg}px; "
+            f"background: transparent; border: none; min-height: 25px;"
         )
         self._original_zone.add_widget(text_label)
 
@@ -170,7 +153,8 @@ class SidebarEntry(QFrame):
         self._translation_label = QLabel()
         self._translation_label.setWordWrap(True)
         self._translation_label.setStyleSheet(
-            "color: #7ab8e0; font-size: 14px; background: transparent; border: none; min-height: 25px;"
+            f"color: {Tokens.translation}; font-size: {Tokens.text_lg}px; "
+            f"background: transparent; border: none; min-height: 25px;"
         )
         self._translation_zone.add_widget(self._translation_label)
         self._translation_zone.hide()
@@ -287,26 +271,17 @@ class OCRSidebar(QWidget):
 
         header = QLabel("OCR Results")
         header.setStyleSheet(
-            "font-size: 15px; font-weight: bold; color: #999;padding: 12px 4px 8px 14px; border: none;"
+            f"font-size: {Tokens.text_lg}px; font-weight: bold; "
+            f"color: {Tokens.text_muted}; padding: {Tokens.sp_3}px {Tokens.sp_1}px "
+            f"{Tokens.sp_2}px {Tokens.sp_4}px; border: none;"
         )
         header_layout.addWidget(header)
 
-        self._settings_btn = QPushButton("⚙")
-        self._settings_btn.setFlat(True)
-        self._settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._settings_btn.setToolTip("Settings")
-        self._settings_btn.setFixedSize(24, 24)
-        self._settings_btn.setStyleSheet(
-            "QPushButton { color: #888; font-size: 16px; border: none; background: transparent; padding: 0; }"
-            "QPushButton:hover { color: #ddd; }"
-        )
+        self._settings_btn = IconButton(Icons.settings(), tooltip="Settings", size=18)
         self._settings_btn.clicked.connect(self.settings_requested)
         header_layout.addWidget(self._settings_btn)
 
-        self._translating_label = QLabel("Translating...")
-        self._translating_label.setStyleSheet(
-            "font-size: 13px; font-style: italic; color: #7ab8e0;padding: 12px 14px 8px 0; border: none;"
-        )
+        self._translating_label = StatusChip("Translating…", state="translation")
         self._translating_label.hide()
         header_layout.addWidget(self._translating_label)
         header_layout.addStretch()
@@ -320,7 +295,8 @@ class OCRSidebar(QWidget):
 
         slider_label = QLabel("Min confidence")
         slider_label.setStyleSheet(
-            "color: #777; font-size: 13px; background: transparent; border: none;"
+            f"color: {Tokens.text_muted}; font-size: {Tokens.text_base}px; "
+            f"background: transparent; border: none;"
         )
         slider_layout.addWidget(slider_label)
 
@@ -328,23 +304,24 @@ class OCRSidebar(QWidget):
         self._confidence_slider.setRange(0, 100)
         self._confidence_slider.setValue(50)
         self._confidence_slider.setStyleSheet(
-            "QSlider::groove:horizontal {"
-            "  background: rgba(255,255,255,10); height: 4px; border-radius: 2px;"
-            "}"
-            "QSlider::handle:horizontal {"
-            "  background: #888; width: 12px; height: 12px; margin: -4px 0;"
-            "  border-radius: 6px;"
-            "}"
-            "QSlider::handle:horizontal:hover {"
-            "  background: #aaa;"
-            "}"
+            f"QSlider::groove:horizontal {{"
+            f"  background: {Tokens.border}; height: 4px; border-radius: 2px;"
+            f"}}"
+            f"QSlider::handle:horizontal {{"
+            f"  background: {Tokens.text_muted}; width: 12px; height: 12px; margin: -4px 0;"
+            f"  border-radius: 6px;"
+            f"}}"
+            f"QSlider::handle:horizontal:hover {{"
+            f"  background: {Tokens.accent};"
+            f"}}"
         )
         slider_layout.addWidget(self._confidence_slider, stretch=1)
 
         self._confidence_value_label = QLabel("50%")
         self._confidence_value_label.setFixedWidth(36)
         self._confidence_value_label.setStyleSheet(
-            "color: #999; font-size: 13px; background: transparent; border: none;"
+            f"color: {Tokens.text_primary}; font-size: {Tokens.text_base}px; "
+            f"background: transparent; border: none;"
         )
         slider_layout.addWidget(self._confidence_value_label)
 
@@ -358,10 +335,13 @@ class OCRSidebar(QWidget):
         overlay_layout.setContentsMargins(14, 0, 14, 6)
         self._overlay_checkbox = QCheckBox("Overlay")
         self._overlay_checkbox.setStyleSheet(
-            "QCheckBox { color: #999; font-size: 13px; background: transparent; border: none; }"
-            "QCheckBox::indicator { width: 14px; height: 14px; }"
-            "QCheckBox::indicator:unchecked { border: 1px solid #666; border-radius: 2px; background: transparent; }"
-            "QCheckBox::indicator:checked { border: 1px solid #7ab8e0; border-radius: 2px; background: #7ab8e0; }"
+            f"QCheckBox {{ color: {Tokens.text_primary}; font-size: {Tokens.text_base}px; "
+            f"background: transparent; border: none; }}"
+            f"QCheckBox::indicator {{ width: 14px; height: 14px; }}"
+            f"QCheckBox::indicator:unchecked {{ border: 1px solid {Tokens.border_strong}; "
+            f"border-radius: 2px; background: transparent; }}"
+            f"QCheckBox::indicator:checked {{ border: 1px solid {Tokens.translation}; "
+            f"border-radius: 2px; background: {Tokens.translation}; }}"
         )
         self._overlay_checkbox.toggled.connect(self.overlay_toggled.emit)
         overlay_layout.addWidget(self._overlay_checkbox)
@@ -374,14 +354,14 @@ class OCRSidebar(QWidget):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         self._scroll_area.setStyleSheet(
-            "QScrollArea { border: none; background: transparent; }"
-            "QScrollBar:vertical {"
-            "  background: rgba(255,255,255,5); width: 6px; border-radius: 3px;"
-            "}"
-            "QScrollBar::handle:vertical {"
-            "  background: rgba(255,255,255,20); border-radius: 3px; min-height: 30px;"
-            "}"
-            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+            f"QScrollArea {{ border: none; background: transparent; }}"
+            f"QScrollBar:vertical {{"
+            f"  background: {Tokens.bg_surface}; width: 6px; border-radius: 3px;"
+            f"}}"
+            f"QScrollBar::handle:vertical {{"
+            f"  background: {Tokens.border_strong}; border-radius: 3px; min-height: 30px;"
+            f"}}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}"
         )
         layout.addWidget(self._scroll_area)
 
@@ -394,7 +374,9 @@ class OCRSidebar(QWidget):
         self._no_results_label = QLabel("No results found")
         self._no_results_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._no_results_label.setStyleSheet(
-            "color: #666; font-size: 13px; font-style: italic; background: transparent; border: none; padding: 24px 0;"
+            f"color: {Tokens.text_muted}; font-size: {Tokens.text_base}px; "
+            f"font-style: italic; background: transparent; border: none; "
+            f"padding: {Tokens.sp_5}px 0;"
         )
         self._no_results_label.hide()
         self._container_layout.addWidget(self._no_results_label)
