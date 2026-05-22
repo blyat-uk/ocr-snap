@@ -9,18 +9,19 @@ description = "Paste/drag-drop images, run PaddleOCR, interact with results"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "PyQt6>=6.6",
-    "paddleocr>=3.0",
-    "paddlepaddle>=3.3",
     "numpy",
     "Pillow",
     "requests>=2.31",
     "python-dotenv>=1.0",
     "qtawesome>=1.2",
+    "platformdirs>=4.0",
 ]
 
 [project.optional-dependencies]
-gpu = ["paddlepaddle-gpu>=3.3"]
-dev = ["pytest>=8.0", "pytest-qt>=4.4"]
+ocr     = ["paddleocr>=3.0", "paddlepaddle>=3.3"]
+ocr-gpu = ["paddleocr>=3.0", "paddlepaddle-gpu>=3.3"]
+dev     = ["pytest>=8.0", "pytest-qt>=4.4", "paddleocr>=3.0", "paddlepaddle>=3.3"]
+build   = ["pyinstaller>=6.0", "pip>=24,<26"]
 
 [project.scripts]
 ocr-snap = "ocr_snap.app:main"
