@@ -76,3 +76,64 @@ def test_load_image_state_resets_fit_flag(qapp):
     qapp.processEvents()
     assert canvas._fit_to_view is True
     canvas.close()
+
+
+# ── Wheel + resize ───────────────────────────────────────────────────
+
+
+def _send_wheel(canvas: OCRCanvas, delta_y: int) -> None:
+    from PyQt6.QtCore import QPoint, QPointF
+    from PyQt6.QtGui import QWheelEvent
+
+    pos = QPointF(canvas.viewport().rect().center())
+    global_pos = QPointF(canvas.viewport().mapToGlobal(pos.toPoint()))
+    event = QWheelEvent(
+        pos,
+        global_pos,
+        QPoint(0, 0),
+        QPoint(0, delta_y),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    canvas.wheelEvent(event)
+
+
+def test_wheel_in_zooms_in(qapp):
+    canvas = _make_canvas_with_image(qapp)
+    before = canvas._current_scale()
+    _send_wheel(canvas, 480)
+    assert canvas._current_scale() > before
+    assert canvas._fit_to_view is False
+    canvas.close()
+
+
+def test_wheel_out_snaps_back_to_fit(qapp):
+    canvas = _make_canvas_with_image(qapp)
+    _send_wheel(canvas, 1200)
+    assert canvas._fit_to_view is False
+    _send_wheel(canvas, -10000)
+    assert canvas._fit_to_view is True
+    canvas.close()
+
+
+def test_resize_preserves_zoom_when_user_zoomed(qapp):
+    canvas = _make_canvas_with_image(qapp)
+    _send_wheel(canvas, 1200)
+    scaled = canvas._current_scale()
+    canvas.resize(500, 400)
+    qapp.processEvents()
+    assert canvas._fit_to_view is False
+    assert canvas._current_scale() == scaled
+    canvas.close()
+
+
+def test_resize_refits_when_at_fit(qapp):
+    canvas = _make_canvas_with_image(qapp)
+    assert canvas._fit_to_view is True
+    canvas.resize(500, 400)
+    qapp.processEvents()
+    # After resize, scale should be at the new fit (within fitInView's ~2% slack).
+    assert math.isclose(canvas._current_scale(), canvas._fit_scale(), rel_tol=0.02)
+    canvas.close()

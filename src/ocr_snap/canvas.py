@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PyQt6.QtCore import QRectF, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QRectF, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QBrush,
     QColor,
@@ -27,9 +27,11 @@ from PyQt6.QtGui import (
     QPixmap,
     QRadialGradient,
     QResizeEvent,
+    QWheelEvent,
 )
 from PyQt6.QtWidgets import (
     QApplication,
+    QGestureEvent,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsPixmapItem,
@@ -40,6 +42,7 @@ from PyQt6.QtWidgets import (
     QGraphicsTextItem,
     QGraphicsView,
     QMenu,
+    QPinchGesture,
 )
 
 from ocr_snap.models import OCRResults, SelectionModel, array_from_qimage, item_color
@@ -273,6 +276,7 @@ class OCRCanvas(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setAcceptDrops(True)
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
+        self.grabGesture(Qt.GestureType.PinchGesture)
 
         self._pixmap_item: QGraphicsPixmapItem | None = None
         self._effective_long_side: int = DISPLAY_LONG_SIDE
@@ -464,6 +468,29 @@ class OCRCanvas(QGraphicsView):
             return
         self.scale(actual, actual)
         self._fit_to_view = False
+
+    def wheelEvent(self, event: QWheelEvent | None) -> None:  # type: ignore[override]
+        if event is None or self._pixmap_item is None:
+            super().wheelEvent(event)
+            return
+        delta = event.angleDelta().y()
+        if delta == 0:
+            super().wheelEvent(event)
+            return
+        factor = 1.0015 ** delta
+        self._apply_zoom(factor)
+        event.accept()
+
+    def event(self, event: QEvent | None) -> bool:  # type: ignore[override]
+        if event is not None and event.type() == QEvent.Type.Gesture:
+            assert isinstance(event, QGestureEvent)
+            pinch = event.gesture(Qt.GestureType.PinchGesture)
+            if isinstance(pinch, QPinchGesture):
+                if pinch.changeFlags() & QPinchGesture.ChangeFlag.ScaleFactorChanged:
+                    self._apply_zoom(pinch.scaleFactor())
+                event.accept(pinch)
+                return True
+        return super().event(event)
 
     # ── Placeholder ─────────────────────────────────────────────────
 
@@ -697,7 +724,7 @@ class OCRCanvas(QGraphicsView):
 
     def resizeEvent(self, event: QResizeEvent | None) -> None:
         super().resizeEvent(event)
-        if self._pixmap_item is not None:
+        if self._pixmap_item is not None and self._fit_to_view:
             self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
     # ── Input events ────────────────────────────────────────────────
