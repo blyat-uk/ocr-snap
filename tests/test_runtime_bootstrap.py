@@ -75,8 +75,7 @@ def test_ensure_uses_gpu_package_string(tmp_path: Path, restore_sys_path) -> Non
 
     args = m.call_args.args[0]
     assert "paddlepaddle-gpu" in args
-    # The CPU package name must not appear as a standalone arg.
-    assert "paddlepaddle" not in [a for a in args if a == "paddlepaddle"]
+    assert "paddlepaddle" not in args
 
 
 def test_ensure_raises_on_pip_failure(tmp_path: Path, restore_sys_path) -> None:
@@ -91,3 +90,14 @@ def test_ensure_does_not_duplicate_sys_path_entry(tmp_path: Path, restore_sys_pa
     ensure_paddle_installed(tmp_path, "paddlepaddle")
     ensure_paddle_installed(tmp_path, "paddlepaddle")
     assert sys.path.count(str(tmp_path)) == 1
+
+
+def test_ensure_raises_when_pip_succeeds_but_paddle_missing(
+    tmp_path: Path, restore_sys_path
+) -> None:
+    # pip returns 0 but does NOT create paddle/__init__.py
+    with patch("pip._internal.cli.main.main", return_value=0):
+        with pytest.raises(RuntimeError, match="paddle is not importable"):
+            ensure_paddle_installed(tmp_path, "paddlepaddle")
+    # sys.path must NOT have been mutated on this failure path
+    assert str(tmp_path) not in sys.path

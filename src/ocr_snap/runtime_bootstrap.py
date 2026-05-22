@@ -48,6 +48,10 @@ def ensure_paddle_installed(
         )
         if rc != 0:
             raise RuntimeError(f"pip install failed with exit code {rc}")
+        if not is_paddle_installed(target_dir):
+            raise RuntimeError(
+                f"pip reported success but paddle is not importable from {target_dir}"
+            )
 
     if str(target_dir) not in sys.path:
         sys.path.insert(0, str(target_dir))
