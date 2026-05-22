@@ -105,7 +105,7 @@ jobs:
       - name: Upload to MEGA
         shell: bash
         env:
-          MEGA_UPLOAD_PATH: ${{ secrets.MEGA_UPLOAD_PATH }}
+          MEGA_UPLOAD_PATH: ${{ vars.MEGA_UPLOAD_PATH }}
           RELEASE_TAG: ${{ inputs.tag }}
           BINARY_NAME: ${{ matrix.binary_name }}
         run: |
