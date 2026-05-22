@@ -60,6 +60,8 @@ _SQUARE_SIZE = 24
 _SQUARE_SPACING = 6
 _PLUS_WIDTH = 16
 
+_MAX_SCALE = 8.0
+
 
 def _make_order_icon(indices: tuple[int, ...]) -> QIcon:
     """Create an icon with colored squares representing the merge order."""
@@ -275,6 +277,7 @@ class OCRCanvas(QGraphicsView):
         self._pixmap_item: QGraphicsPixmapItem | None = None
         self._effective_long_side: int = DISPLAY_LONG_SIDE
         self._bbox_scale: float = 1.0
+        self._fit_to_view: bool = True
         self._ocr_items: list[QGraphicsItem] = []
         self._placeholder: QGraphicsTextItem | None = None
         self._selection_model: SelectionModel | None = None
@@ -431,6 +434,37 @@ class OCRCanvas(QGraphicsView):
             alive.append(s)
         self._sparks = alive
 
+    # ── Zoom ────────────────────────────────────────────────────────
+
+    def _current_scale(self) -> float:
+        return self.transform().m11()
+
+    def _fit_scale(self) -> float:
+        if self._pixmap_item is None:
+            return 1.0
+        br = self._pixmap_item.boundingRect()
+        if br.width() <= 0 or br.height() <= 0:
+            return 1.0
+        vp = self.viewport().size()
+        return min(vp.width() / br.width(), vp.height() / br.height())
+
+    def _apply_zoom(self, factor: float) -> None:
+        if self._pixmap_item is None:
+            return
+        current = self._current_scale()
+        target = current * factor
+        fit = self._fit_scale()
+        target = max(fit, min(_MAX_SCALE, target))
+        if target <= fit * 1.001:
+            self._fit_to_view = True
+            self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+            return
+        actual = target / current
+        if actual == 1.0:
+            return
+        self.scale(actual, actual)
+        self._fit_to_view = False
+
     # ── Placeholder ─────────────────────────────────────────────────
 
     def show_placeholder(self) -> None:
@@ -481,6 +515,7 @@ class OCRCanvas(QGraphicsView):
         self._pixmap_item = pixmap_item
         self.setSceneRect(QRectF(state.pixmap.rect().toRectF()))
 
+        self._fit_to_view = True
         self.fitInView(pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
         # Restore OCR overlays if results exist
@@ -655,6 +690,7 @@ class OCRCanvas(QGraphicsView):
         pixmap_item.setZValue(0)
         self._pixmap_item = pixmap_item
         self.setSceneRect(QRectF(pixmap.rect().toRectF()))
+        self._fit_to_view = True
         self.fitInView(pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
         self.image_loaded.emit(arr, pixmap)
