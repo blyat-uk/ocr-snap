@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import traceback
 
 from dotenv import load_dotenv
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -32,8 +33,8 @@ class _InstallWorker(QThread):
                 on_progress=self.progress.emit,
             )
             self.finished_ok.emit()
-        except Exception as e:
-            self.finished_err.emit(str(e))
+        except Exception:
+            self.finished_err.emit(traceback.format_exc())
 
 
 def _run_first_run_install() -> bool:
@@ -45,10 +46,13 @@ def _run_first_run_install() -> bool:
         return True
 
     dialog = QProgressDialog(
-        "Preparing OCR engine (first run only)...", "Cancel", 0, 0
+        "Preparing OCR engine (first run only)...", "", 0, 0
     )
     dialog.setWindowTitle("OCR Snap — First-run setup")
     dialog.setMinimumDuration(0)
+    # Pip can't be safely interrupted mid-install. Remove the Cancel button
+    # rather than leaving a button that does nothing useful.
+    dialog.setCancelButton(None)
 
     worker = _InstallWorker(target_dir, _build_info.PADDLE_PACKAGE)
     result = {"ok": False, "err": ""}
@@ -72,11 +76,13 @@ def _run_first_run_install() -> bool:
     worker.wait()
 
     if not result["ok"]:
-        QMessageBox.critical(
-            None,
+        msg = QMessageBox(
+            QMessageBox.Icon.Critical,
             "OCR Snap — setup failed",
-            f"Failed to install OCR engine:\n\n{result['err']}",
+            "Failed to install OCR engine.",
         )
+        msg.setDetailedText(result["err"])
+        msg.exec()
         return False
     return True
 
