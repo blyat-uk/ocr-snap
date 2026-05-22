@@ -63,10 +63,11 @@ retains its own OCR results, zoom level, and selections.*
 
 ## Requirements
 
-- Python 3.12 or newer
-- A GPU with CUDA support is recommended for fast OCR (CPU fallback works but is slower)
-- A [DeepL API key](https://www.deepl.com/pro-api) (free tier available) if you want
-  automatic translation
+- Python 3.12 (Paddle currently requires `>=3.12,<3.13`)
+- Optional: a CUDA-capable GPU for faster OCR -- install with the `[gpu]` extra
+  (see [GPU support](#gpu-support-optional)). CPU works out of the box.
+- Optional: a [DeepL API key](https://www.deepl.com/pro-api) (free tier available)
+  for automatic translation -- enter it in **Settings** at runtime.
 
 ## Installation
 
@@ -115,27 +116,51 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-> **Note on GPU support:** OCR Snap auto-detects GPU support at startup and
-> chooses CPU or GPU based on your hardware profile. If you're on a low-VRAM
-> GPU and the app crashes after pasting, open Settings → OCR engine and set
-> Device to "CPU only", or switch Profile to Performance.
+### GPU support (optional)
 
-## Configuration
-
-Copy the example environment file and add your DeepL API key:
+The default install runs PaddleOCR on CPU. To enable CUDA-backed inference,
+install the GPU extra after the base install:
 
 ```bash
-cp .env.example .env
+pip install -e '.[gpu]'
 ```
 
-Edit `.env` and set your key:
+This pulls `paddlepaddle-gpu` in addition to the CPU runtime. OCR Snap
+auto-detects CUDA at startup; if a GPU is found it will be used, otherwise it
+falls back to CPU. You can also force CPU from **Settings → OCR engine → Device**
+if a low-VRAM GPU causes crashes.
 
-```
-DEEPL_API_KEY=your-api-key-here
-```
+## Settings
 
-Translation is optional. If no API key is provided, OCR Snap will still extract
-text -- it just won't translate.
+OCR Snap is configured entirely through its in-app **Settings** dialog --
+open it from the button in the status bar (bottom of the window) or with
+`Ctrl+,`.
+
+### Translation (DeepL)
+
+Paste your [DeepL API key](https://www.deepl.com/account/summary) into the
+**Translation** section and click **Test key** to verify it. Free-tier keys
+end with `:fx`; the dialog routes to the correct DeepL endpoint automatically.
+Translation is optional -- without a key, OCR still works, you just won't get
+translations.
+
+### Performance tier
+
+The **Hardware profile** section picks a preset that controls model size,
+device, OCR input resolution, and the processing animation. On first launch
+OCR Snap detects your RAM/CPU and chooses a tier automatically; you can
+override it any time:
+
+- **Performance** -- mobile model, CPU only, smaller input, animation off.
+  Best for low-VRAM GPUs or ≤ 6 GB RAM machines.
+- **Balanced** -- mobile model, auto device, medium input. The default for
+  most modern laptops.
+- **Quality** -- server model, auto device, full input resolution. Best for
+  GPUs with plenty of VRAM where accuracy matters more than latency.
+
+Use **Auto-detect** in the dialog to reset to the recommended tier. Tier or
+device changes require an app restart to take effect; DeepL key and animation
+changes apply immediately.
 
 ## Usage
 
@@ -169,10 +194,9 @@ Or run directly without activating the environment:
 6. **Navigate** -- use `Ctrl+Scroll` to zoom, click and drag to pan
 7. **Multiple images** -- paste or drop additional images; a thumbnail gallery
    appears for switching between them
-8. **Pick a hardware profile** — open Settings (gear icon in the sidebar)
-   to choose Performance / Balanced / Quality. On first run the app picks
-   one based on detected RAM. Use Performance on low-VRAM GPUs or
-   ≤ 6 GB RAM machines.
+8. **Tune things** — open Settings (button in the status bar, or `Ctrl+,`)
+   to enter your DeepL key, switch performance tier, or change the OCR model
+   and device. See the [Settings](#settings) section above for details.
 
 ## License
 

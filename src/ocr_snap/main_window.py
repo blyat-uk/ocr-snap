@@ -484,8 +484,7 @@ class MainWindow(QMainWindow):
         if image_id == self._active_id:
             self._sidebar.update_translations(translations)
             self._sidebar.set_translating(False)
-            if state.overlay_enabled:
-                self._canvas.set_overlay_texts(state.ocr_results.items)
+            self._canvas.set_overlay_texts(state.ocr_results.items)
 
     def _on_translation_error(self, message: str) -> None:
         # Mark active image as not translating
