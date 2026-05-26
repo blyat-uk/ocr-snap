@@ -21,6 +21,28 @@ def is_paddle_installed(target_dir: Path) -> bool:
     return (target_dir / "paddle" / "__init__.py").exists()
 
 
+def _register_frozen_resource_finder(package: str = "pip._vendor.distlib") -> None:
+    """Make pip's vendored distlib usable when running inside a PyInstaller bundle.
+
+    On Windows, importing pip's install command pulls in
+    ``pip._vendor.distlib.scripts``, whose module-level code pre-loads the
+    bundled ``.exe`` launchers via ``distlib.resources.finder(<distlib pkg>)``.
+    That registry is keyed by module-loader *type* and only knows the stdlib
+    loaders, so PyInstaller's ``PyiFrozenImporter`` misses and it raises
+    ``DistlibException: Unable to locate finder``. PyInstaller extracts the
+    bundle to a real directory (``sys._MEIPASS``), so the plain filesystem
+    ``ResourceFinder`` works once we register it for the frozen loader's type.
+    Importing distlib's ``resources`` module is safe — it does not import the
+    broken ``scripts`` module.
+    """
+    import importlib
+
+    from pip._vendor.distlib.resources import ResourceFinder, register_finder
+
+    module = importlib.import_module(package)
+    register_finder(module.__loader__, ResourceFinder)
+
+
 def ensure_paddle_installed(
     target_dir: Path,
     paddle_package: str,
@@ -36,6 +58,10 @@ def ensure_paddle_installed(
             on_progress(
                 f"Installing {paddle_package} (this can take several minutes)..."
             )
+        if getattr(sys, "frozen", False):
+            # Bundled pip can't read its own vendored distlib resources under
+            # PyInstaller until we teach distlib about the frozen loader.
+            _register_frozen_resource_finder()
         from pip._internal.cli.main import main as pip_main
         rc = pip_main(
             [

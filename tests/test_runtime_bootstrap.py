@@ -8,6 +8,7 @@ import pytest
 
 from ocr_snap.runtime_bootstrap import (
     PADDLEOCR_SPEC,
+    _register_frozen_resource_finder,
     ensure_paddle_installed,
     is_paddle_installed,
 )
@@ -101,3 +102,55 @@ def test_ensure_raises_when_pip_succeeds_but_paddle_missing(
             ensure_paddle_installed(tmp_path, "paddlepaddle")
     # sys.path must NOT have been mutated on this failure path
     assert str(tmp_path) not in sys.path
+
+
+def test_register_frozen_resource_finder_handles_unknown_loader(
+    tmp_path: Path,
+) -> None:
+    """Reproduce the PyInstaller-on-Windows crash and prove the fix.
+
+    A package whose ``__loader__`` type is unknown to distlib (as
+    ``PyiFrozenImporter`` is) makes ``finder()`` raise ``DistlibException``.
+    ``_register_frozen_resource_finder`` registers the filesystem
+    ``ResourceFinder`` for that loader type so it resolves instead.
+    """
+    import importlib
+    import types
+
+    from pip._vendor.distlib import resources
+    from pip._vendor.distlib.resources import DistlibException
+
+    pkg_name = "ocr_snap_fake_frozen_pkg"
+    pkg_dir = tmp_path / pkg_name
+    pkg_dir.mkdir()
+    (pkg_dir / "__init__.py").write_text("")
+    (pkg_dir / "t64.exe").write_bytes(b"stub-launcher")
+
+    class FrozenStyleLoader:  # stands in for PyInstaller's PyiFrozenImporter
+        pass
+
+    module = types.ModuleType(pkg_name)
+    module.__file__ = str(pkg_dir / "__init__.py")
+    module.__path__ = [str(pkg_dir)]
+    module.__loader__ = FrozenStyleLoader()
+
+    registry = resources._finder_registry
+    assert FrozenStyleLoader not in registry
+    try:
+        with patch.dict(sys.modules, {pkg_name: module}):
+            resources._finder_cache.pop(pkg_name, None)
+            # Before the fix: the loader type is unregistered -> the prod error.
+            with pytest.raises(DistlibException, match="Unable to locate finder"):
+                resources.finder(pkg_name)
+
+            _register_frozen_resource_finder(pkg_name)
+
+            # After the fix: the filesystem finder enumerates the bundled .exe.
+            resources._finder_cache.pop(pkg_name, None)
+            found = resources.finder(pkg_name)
+            names = {r.name for r in found.iterator("")}
+            assert "t64.exe" in names
+    finally:
+        registry.pop(FrozenStyleLoader, None)
+        resources._finder_cache.pop(pkg_name, None)
+        importlib.invalidate_caches()
