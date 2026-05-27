@@ -16,6 +16,8 @@ from PyQt6.QtGui import QImage, QPixmap
 
 from ocr_snap.models import Adjustments, array_from_qimage
 
+_FILL = (255, 255, 255)
+
 
 def pil_from_array(arr: np.ndarray) -> Image.Image:
     """Wrap an RGB uint8 (H, W, 3) array in a PIL image (owns a copy)."""
@@ -43,7 +45,31 @@ def pixmap_from_pil(img: Image.Image) -> QPixmap:
 
 
 def _apply_geometry(img: Image.Image, adj: Adjustments) -> Image.Image:
-    return img  # implemented in Task 4
+    if adj.rotation != 0.0:
+        # PIL rotates counter-clockwise for positive angles; negate so that
+        # a positive Adjustments.rotation is clockwise.
+        img = img.rotate(
+            -adj.rotation, expand=True, resample=Image.BICUBIC, fillcolor=_FILL
+        )
+    if adj.crop is not None:
+        img = _apply_crop(img, adj.crop)
+    return img
+
+
+def _apply_crop(img: Image.Image, crop: tuple[float, float, float, float]) -> Image.Image:
+    x, y, cw, ch = crop
+    w, h = img.size
+
+    def clamp01(v: float) -> float:
+        return max(0.0, min(1.0, v))
+
+    left = int(round(clamp01(x) * w))
+    top = int(round(clamp01(y) * h))
+    right = int(round(clamp01(x + cw) * w))
+    bottom = int(round(clamp01(y + ch) * h))
+    if right - left < 2 or bottom - top < 2:
+        return img  # reject degenerate crop
+    return img.crop((left, top, right, bottom))
 
 
 def _apply_tone(img: Image.Image, adj: Adjustments) -> Image.Image:

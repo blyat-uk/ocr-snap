@@ -106,3 +106,35 @@ def test_binarize_uniform_image_does_not_crash() -> None:
     img = Image.new("RGB", (4, 4), (128, 128, 128))
     arr = array_from_pil(render_display(img, Adjustments(binarize=True)))
     assert set(np.unique(arr).tolist()).issubset({0, 255})
+
+
+def test_rotate_90_swaps_dimensions() -> None:
+    img = Image.new("RGB", (40, 20), (0, 0, 0))
+    out = render_display(img, Adjustments(rotation=90.0))
+    assert out.size == (20, 40)
+
+
+def test_rotate_45_fills_corner_white() -> None:
+    img = Image.new("RGB", (40, 40), (0, 0, 0))
+    arr = array_from_pil(render_display(img, Adjustments(rotation=45.0)))
+    assert tuple(arr[0, 0]) == (255, 255, 255)  # exposed corner is white fill
+
+
+def test_crop_normalized_region() -> None:
+    img = Image.new("RGB", (100, 80), (0, 0, 0))
+    out = render_display(img, Adjustments(crop=(0.1, 0.25, 0.5, 0.5)))
+    # left=10,right=60 -> 50 wide; top=20,bottom=60 -> 40 tall
+    assert out.size == (50, 40)
+
+
+def test_crop_degenerate_returns_original() -> None:
+    img = Image.new("RGB", (100, 80), (0, 0, 0))
+    out = render_display(img, Adjustments(crop=(0.5, 0.5, 0.0, 0.0)))
+    assert out.size == (100, 80)
+
+
+def test_crop_clamps_out_of_range() -> None:
+    img = Image.new("RGB", (100, 80), (0, 0, 0))
+    out = render_display(img, Adjustments(crop=(0.5, 0.5, 1.0, 1.0)))
+    # right/bottom clamp to 100/80 -> 50 wide x 40 tall
+    assert out.size == (50, 40)
