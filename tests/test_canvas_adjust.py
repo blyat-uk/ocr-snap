@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtWidgets import QGraphicsView
 
 from ocr_snap.canvas import OCRCanvas
 from ocr_snap.models import OCRResultItem, OCRResults, SelectionModel
@@ -77,4 +78,40 @@ def test_clear_results_removes_items(qapp) -> None:
     canvas.clear_results()
     assert canvas._ocr_items == []
     assert canvas._overlay_items == []
+    canvas.close()
+
+
+def test_set_crop_mode_toggles_drag_mode(qapp) -> None:
+    canvas = _canvas(qapp)
+    canvas.set_crop_mode(True)
+    assert canvas.dragMode() == QGraphicsView.DragMode.NoDrag
+    canvas.set_crop_mode(False)
+    assert canvas.dragMode() == QGraphicsView.DragMode.ScrollHandDrag
+    canvas.close()
+
+
+def test_finish_crop_emits_normalized_rect(qapp) -> None:
+    canvas = _canvas(qapp)  # 800x600 working pixmap
+    emitted: list[QRectF] = []
+    canvas.crop_selected.connect(emitted.append)
+    canvas.set_crop_mode(True)
+    canvas._finish_crop(QPointF(100.0, 150.0), QPointF(500.0, 450.0))
+    assert len(emitted) == 1
+    rect = emitted[0]
+    assert abs(rect.x() - 0.125) < 1e-6      # 100/800
+    assert abs(rect.y() - 0.25) < 1e-6       # 150/600
+    assert abs(rect.width() - 0.5) < 1e-6    # 400/800
+    assert abs(rect.height() - 0.5) < 1e-6   # 300/600
+    # crop mode auto-exits after a finished selection
+    assert canvas.dragMode() == QGraphicsView.DragMode.ScrollHandDrag
+    canvas.close()
+
+
+def test_finish_crop_ignores_tiny_selection(qapp) -> None:
+    canvas = _canvas(qapp)
+    emitted: list[QRectF] = []
+    canvas.crop_selected.connect(emitted.append)
+    canvas.set_crop_mode(True)
+    canvas._finish_crop(QPointF(100.0, 100.0), QPointF(101.0, 101.0))
+    assert emitted == []
     canvas.close()
