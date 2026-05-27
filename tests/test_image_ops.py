@@ -64,3 +64,45 @@ def test_render_ocr_input_upscales_when_flagged() -> None:
     arr = render_ocr_input(img, Adjustments(upscale=True), effective_long_side=400)
     # long side 100 -> 400, factor 4 -> 240 tall
     assert arr.shape == (240, 400, 3)
+
+
+def test_grayscale_makes_channels_equal() -> None:
+    img = Image.new("RGB", (4, 4), (200, 100, 50))
+    arr = array_from_pil(render_display(img, Adjustments(grayscale=True)))
+    assert arr[0, 0, 0] == arr[0, 0, 1] == arr[0, 0, 2]
+
+
+def test_invert_black_to_white() -> None:
+    img = Image.new("RGB", (4, 4), (0, 0, 0))
+    arr = array_from_pil(render_display(img, Adjustments(invert=True)))
+    assert tuple(arr[0, 0]) == (255, 255, 255)
+
+
+def test_binarize_outputs_only_black_and_white() -> None:
+    grad = np.tile(np.arange(256, dtype=np.uint8), (4, 1))  # 4x256 ramp
+    rgb = np.stack([grad, grad, grad], axis=-1)
+    img = Image.fromarray(rgb, mode="RGB")
+    arr = array_from_pil(render_display(img, Adjustments(binarize=True)))
+    uniq = set(np.unique(arr).tolist())
+    assert uniq.issubset({0, 255})
+    assert arr[0, 0, 0] == arr[0, 0, 1] == arr[0, 0, 2]
+
+
+def test_brightness_increases_mean() -> None:
+    img = Image.new("RGB", (4, 4), (100, 100, 100))
+    brighter = array_from_pil(render_display(img, Adjustments(brightness=1.5)))
+    darker = array_from_pil(render_display(img, Adjustments(brightness=0.5)))
+    assert brighter.mean() > 100 >= darker.mean()
+
+
+def test_sharpen_preserves_size_and_runs() -> None:
+    img = Image.new("RGB", (20, 16), (120, 120, 120))
+    out = render_display(img, Adjustments(sharpen=1.0))
+    assert out.size == (20, 16)
+
+
+def test_binarize_uniform_image_does_not_crash() -> None:
+    # Uniform image -> Otsu picks threshold 0; must not divide-by-zero.
+    img = Image.new("RGB", (4, 4), (128, 128, 128))
+    arr = array_from_pil(render_display(img, Adjustments(binarize=True)))
+    assert set(np.unique(arr).tolist()).issubset({0, 255})

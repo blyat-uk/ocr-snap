@@ -11,7 +11,7 @@ contrast -> invert -> binarize (Otsu) -> sharpen.
 from __future__ import annotations
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from PyQt6.QtGui import QImage, QPixmap
 
 from ocr_snap.models import Adjustments, array_from_qimage
@@ -47,7 +47,55 @@ def _apply_geometry(img: Image.Image, adj: Adjustments) -> Image.Image:
 
 
 def _apply_tone(img: Image.Image, adj: Adjustments) -> Image.Image:
-    return img  # implemented in Task 3
+    if adj.grayscale or adj.binarize:
+        img = img.convert("L").convert("RGB")
+    if adj.brightness != 1.0:
+        img = ImageEnhance.Brightness(img).enhance(adj.brightness)
+    if adj.contrast != 1.0:
+        img = ImageEnhance.Contrast(img).enhance(adj.contrast)
+    if adj.invert:
+        img = ImageOps.invert(img.convert("RGB"))
+    if adj.binarize:
+        img = _otsu_binarize(img)
+    if adj.sharpen > 0.0:
+        # Map sharpen 0..2 onto UnsharpMask percent; 150% at 1.0 is Pillow's
+        # recommended moderate value.
+        percent = int(round(adj.sharpen * 150))
+        img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=percent, threshold=3))
+    return img
+
+
+def _otsu_threshold(gray: np.ndarray) -> int:
+    hist = np.bincount(gray.ravel(), minlength=256).astype(np.float64)
+    total = int(gray.size)
+    sum_total = float(np.dot(np.arange(256), hist))
+    sum_b = 0.0
+    w_b = 0.0
+    max_var = -1.0
+    threshold = 0
+    for i in range(256):
+        w_b += hist[i]
+        if w_b == 0:
+            continue
+        w_f = total - w_b
+        if w_f == 0:
+            break
+        sum_b += i * hist[i]
+        m_b = sum_b / w_b
+        m_f = (sum_total - sum_b) / w_f
+        var_between = w_b * w_f * (m_b - m_f) ** 2
+        if var_between > max_var:
+            max_var = var_between
+            threshold = i
+    return threshold
+
+
+def _otsu_binarize(img: Image.Image) -> Image.Image:
+    gray = np.asarray(img.convert("L"))
+    thresh = _otsu_threshold(gray)
+    binary = (gray > thresh).astype(np.uint8) * 255
+    rgb = np.stack([binary, binary, binary], axis=-1)
+    return Image.fromarray(rgb, mode="RGB")
 
 
 def _pipeline(img: Image.Image, adj: Adjustments) -> Image.Image:
