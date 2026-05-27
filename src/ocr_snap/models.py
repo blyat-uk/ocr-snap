@@ -51,6 +51,45 @@ def array_from_pixmap(
 
 
 @dataclass
+class Adjustments:
+    """User-controlled image adjustments for a single image.
+
+    ``rotation`` is degrees, positive = clockwise. ``crop`` is
+    (x, y, w, h) normalized to 0..1 in the post-rotation image space.
+    ``brightness``/``contrast`` are Pillow enhance factors (1.0 = no change).
+    ``det_sensitivity`` is 0..1. The ``upscale``/``det_sensitivity``/
+    ``smart_fix`` fields are OCR-time options (no pixel preview effect).
+    """
+
+    rotation: float = 0.0
+    crop: tuple[float, float, float, float] | None = None
+    brightness: float = 1.0
+    contrast: float = 1.0
+    grayscale: bool = False
+    invert: bool = False
+    binarize: bool = False
+    sharpen: float = 0.0
+    upscale: bool = False
+    det_sensitivity: float = 0.0
+    smart_fix: bool = False
+
+    def is_identity(self) -> bool:
+        return (
+            self.rotation == 0.0
+            and self.crop is None
+            and self.brightness == 1.0
+            and self.contrast == 1.0
+            and not self.grayscale
+            and not self.invert
+            and not self.binarize
+            and self.sharpen == 0.0
+            and not self.upscale
+            and self.det_sensitivity == 0.0
+            and not self.smart_fix
+        )
+
+
+@dataclass
 class OCRResultItem:
     index: int
     text: str
@@ -71,6 +110,9 @@ class ImageState:
     def __init__(self, image_id: str, pixmap: QPixmap, array: np.ndarray | None) -> None:
         self.image_id = image_id
         self.pixmap = pixmap
+        self.original_pixmap = pixmap
+        self.adjustments = Adjustments()
+        self.results_snapshot: OCRResults | None = None
         self.array: np.ndarray | None = array
         self.selection_model = SelectionModel()
         self.ocr_results: OCRResults | None = None
