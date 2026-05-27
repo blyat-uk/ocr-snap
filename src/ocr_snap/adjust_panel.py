@@ -178,6 +178,15 @@ class AdjustPanel(QWidget):
     def current_adjustments(self) -> Adjustments:
         return dataclasses.replace(self._adj)
 
+    def set_crop_active(self, active: bool) -> None:
+        """Sync the crop button to the canvas's actual crop-mode state (e.g.
+        the canvas auto-exits crop mode after a selection). Does not re-emit
+        ``crop_mode_toggled``."""
+        if self._crop_btn.isChecked() != active:
+            self._crop_btn.blockSignals(True)
+            self._crop_btn.setChecked(active)
+            self._crop_btn.blockSignals(False)
+
     def set_crop(self, crop: tuple[float, float, float, float] | None) -> None:
         self._adj = dataclasses.replace(self._adj, crop=crop)
         if self._crop_btn.isChecked():

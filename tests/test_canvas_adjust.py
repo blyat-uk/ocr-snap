@@ -115,3 +115,25 @@ def test_finish_crop_ignores_tiny_selection(qapp) -> None:
     canvas._finish_crop(QPointF(100.0, 100.0), QPointF(101.0, 101.0))
     assert emitted == []
     canvas.close()
+
+
+def test_set_crop_mode_emits_crop_mode_changed(qapp) -> None:
+    canvas = _canvas(qapp)
+    seen: list[bool] = []
+    canvas.crop_mode_changed.connect(seen.append)
+    canvas.set_crop_mode(True)
+    canvas.set_crop_mode(False)
+    assert seen == [True, False]
+    canvas.close()
+
+
+def test_tiny_crop_signals_crop_mode_exit(qapp) -> None:
+    # A cancelled/too-small selection exits crop mode without crop_selected,
+    # but must still signal crop_mode_changed(False) so the panel button syncs.
+    canvas = _canvas(qapp)
+    seen: list[bool] = []
+    canvas.crop_mode_changed.connect(seen.append)
+    canvas.set_crop_mode(True)
+    canvas._finish_crop(QPointF(10.0, 10.0), QPointF(11.0, 11.0))
+    assert seen[-1] is False
+    canvas.close()

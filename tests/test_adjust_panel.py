@@ -101,3 +101,14 @@ def test_set_adjustments_quantizes_to_slider_granularity(qapp) -> None:
     panel.set_adjustments(Adjustments(rotation=45.7))
     assert panel._rotation.value() == 46
     assert panel.current_adjustments().rotation == 46.0
+
+
+def test_set_crop_active_syncs_button_without_emitting(qapp) -> None:
+    panel = AdjustPanel()
+    toggles: list[bool] = []
+    panel.crop_mode_toggled.connect(toggles.append)
+    panel.set_crop_active(True)
+    assert panel._crop_btn.isChecked() is True
+    panel.set_crop_active(False)
+    assert panel._crop_btn.isChecked() is False
+    assert toggles == []  # syncing must not re-emit crop_mode_toggled

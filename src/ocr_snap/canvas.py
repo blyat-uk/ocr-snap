@@ -265,6 +265,7 @@ class OCRCanvas(QGraphicsView):
     merge_requested = pyqtSignal(list)
     delete_requested = pyqtSignal()
     crop_selected = pyqtSignal(QRectF)  # normalized (x, y, w, h) of the working pixmap
+    crop_mode_changed = pyqtSignal(bool)  # crop mode entered/exited (incl. auto-exit)
 
     def __init__(self, parent: QGraphicsView | None = None):
         super().__init__(parent)
@@ -591,6 +592,7 @@ class OCRCanvas(QGraphicsView):
                 viewport.unsetCursor()
             self._remove_crop_rect()
             self._crop_origin = None
+        self.crop_mode_changed.emit(enabled)
 
     def _remove_crop_rect(self) -> None:
         if self._crop_rect_item is not None:

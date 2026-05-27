@@ -170,6 +170,7 @@ class MainWindow(QMainWindow):
         self._adjust_panel.run_ocr_requested.connect(self._on_run_ocr_requested)
         self._adjust_panel.reset_requested.connect(self._on_adjust_reset)
         self._adjust_panel.crop_mode_toggled.connect(self._canvas.set_crop_mode)
+        self._canvas.crop_mode_changed.connect(self._adjust_panel.set_crop_active)
         self._canvas.crop_selected.connect(self._on_crop_selected)
 
     # ── Image loaded ────────────────────────────────────────────────
