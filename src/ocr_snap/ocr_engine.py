@@ -3,15 +3,72 @@ from __future__ import annotations
 import collections
 import concurrent.futures
 import threading
+from dataclasses import dataclass
 
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from ocr_snap.models import OCRResultItem, OCRResults
+from ocr_snap.models import Adjustments, OCRResultItem, OCRResults
 from ocr_snap.perf_settings import OCRPerfSettings, effective_ocr_long_side
 
 _PREDICT_TIMEOUT = 30  # seconds
 _PRELOAD_TIMEOUT = 60  # seconds
+
+
+@dataclass
+class OCRRunOptions:
+    """Per-prediction OCR options carried through the engine work queue."""
+
+    min_confidence: float = 0.5
+    use_doc_orientation_classify: bool = False
+    use_doc_unwarping: bool = False
+    use_textline_orientation: bool = False
+    text_det_thresh: float | None = None
+    text_det_box_thresh: float | None = None
+    text_det_unclip_ratio: float | None = None
+
+    def uses_correction(self) -> bool:
+        return (
+            self.use_doc_orientation_classify
+            or self.use_doc_unwarping
+            or self.use_textline_orientation
+        )
+
+    def predict_kwargs(self) -> dict[str, object]:
+        kw: dict[str, object] = {
+            "use_doc_orientation_classify": self.use_doc_orientation_classify,
+            "use_doc_unwarping": self.use_doc_unwarping,
+            "use_textline_orientation": self.use_textline_orientation,
+        }
+        if self.text_det_thresh is not None:
+            kw["text_det_thresh"] = self.text_det_thresh
+        if self.text_det_box_thresh is not None:
+            kw["text_det_box_thresh"] = self.text_det_box_thresh
+        if self.text_det_unclip_ratio is not None:
+            kw["text_det_unclip_ratio"] = self.text_det_unclip_ratio
+        return kw
+
+    @classmethod
+    def from_adjustments(cls, adj: Adjustments, min_confidence: float) -> OCRRunOptions:
+        """Map Adjustments + min_confidence to engine options. Detection
+        thresholds stay None (Paddle defaults) when sensitivity is 0."""
+        thresh: float | None = None
+        box: float | None = None
+        unclip: float | None = None
+        s = adj.det_sensitivity
+        if s > 0.0:
+            thresh = 0.3 - 0.2 * s
+            box = 0.6 - 0.3 * s
+            unclip = 1.5 + 0.5 * s
+        return cls(
+            min_confidence=min_confidence,
+            use_doc_orientation_classify=adj.smart_fix,
+            use_doc_unwarping=adj.smart_fix,
+            use_textline_orientation=adj.smart_fix,
+            text_det_thresh=thresh,
+            text_det_box_thresh=box,
+            text_det_unclip_ratio=unclip,
+        )
 
 
 class OCREngine(QObject):
