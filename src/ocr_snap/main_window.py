@@ -24,7 +24,7 @@ import numpy as np
 from ocr_snap.canvas import OCRCanvas
 from ocr_snap.gallery import GalleryPanel
 from ocr_snap.models import ImageState, OCRResultItem, OCRResults, array_from_pixmap
-from ocr_snap.ocr_engine import OCREngine
+from ocr_snap.ocr_engine import OCREngine, OCRRunOptions
 from ocr_snap.perf_settings import AppSettings
 from ocr_snap.settings_dialog import SettingsDialog
 from ocr_snap.sidebar import OCRSidebar
@@ -302,7 +302,9 @@ class MainWindow(QMainWindow):
         state.ocr_running = True
         self._canvas.set_processing(True)
         self._gallery.set_processing(self._active_id, True)
-        self._ocr_engine.run(self._active_id, state.array, min_confidence=threshold)
+        self._ocr_engine.run(
+            self._active_id, state.array, OCRRunOptions(min_confidence=threshold)
+        )
         self._status_bar.showMessage("Re-running OCR with lower threshold...")
 
     # ── Merge ───────────────────────────────────────────────────────

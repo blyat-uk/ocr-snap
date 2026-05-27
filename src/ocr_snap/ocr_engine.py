@@ -87,7 +87,8 @@ class OCREngine(QObject):
         self.effective_long_side: int = effective_ocr_long_side(perf, device)
         self._resolved_device: str = device
         self._ocr: object | None = None
-        self._queue: collections.deque[tuple[str, np.ndarray, float]] = collections.deque()
+        self._correction_ocr: object | None = None
+        self._queue: collections.deque[tuple[str, np.ndarray, OCRRunOptions]] = collections.deque()
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
         self._preload_done = threading.Event()
@@ -107,9 +108,13 @@ class OCREngine(QObject):
         finally:
             self._preload_done.set()
 
-    def run(self, image_id: str, image: np.ndarray, *, min_confidence: float = 0.5) -> None:
+    def run(
+        self, image_id: str, image: np.ndarray, options: OCRRunOptions | None = None
+    ) -> None:
+        if options is None:
+            options = OCRRunOptions()
         with self._lock:
-            self._queue.append((image_id, image, min_confidence))
+            self._queue.append((image_id, image, options))
             if self._worker is not None and self._worker.is_alive():
                 return
         self._start_worker()
@@ -131,9 +136,7 @@ class OCREngine(QObject):
             pass
         return "cpu"
 
-    def _init_ocr(self) -> None:
-        if self._ocr is not None:
-            return
+    def _build_ocr(self, *, corrections: bool) -> object:
         from paddleocr import PaddleOCR
 
         if self._perf.model_variant == "server":
@@ -147,24 +150,42 @@ class OCREngine(QObject):
         kwargs: dict[str, object] = dict(
             text_detection_model_name=det,
             text_recognition_model_name=rec,
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
+            use_doc_orientation_classify=corrections,
+            use_doc_unwarping=corrections,
+            use_textline_orientation=corrections,
             device=device,
         )
         if device == "cpu" and self._perf.paddle_cpu_threads > 0:
             kwargs["cpu_threads"] = self._perf.paddle_cpu_threads
-        self._ocr = PaddleOCR(**kwargs)
+        return PaddleOCR(**kwargs)
+
+    def _init_ocr(self) -> None:
+        if self._ocr is None:
+            self._ocr = self._build_ocr(corrections=False)
+
+    def _get_correction_ocr(self) -> object:
+        if self._correction_ocr is None:
+            self._correction_ocr = self._build_ocr(corrections=True)
+        return self._correction_ocr
+
+    def _select_ocr(self, options: OCRRunOptions) -> object:
+        if options.uses_correction():
+            return self._get_correction_ocr()
+        self._init_ocr()
+        assert self._ocr is not None  # _init_ocr guarantees this
+        return self._ocr
 
     def _worker_loop(self) -> None:
         while True:
             with self._lock:
                 if not self._queue:
                     return
-                image_id, image, min_confidence = self._queue.popleft()
-            self._process_one(image_id, image, min_confidence)
+                image_id, image, options = self._queue.popleft()
+            self._process_one(image_id, image, options)
 
-    def _process_one(self, image_id: str, image: np.ndarray, min_confidence: float) -> None:
+    def _process_one(
+        self, image_id: str, image: np.ndarray, options: OCRRunOptions
+    ) -> None:
         try:
             if not self._preload_done.wait(timeout=_PRELOAD_TIMEOUT):
                 self.error_occurred.emit("OCR model loading timed out")
@@ -175,8 +196,13 @@ class OCREngine(QObject):
             self._init_ocr()  # fallback if preload() was never called
 
             h, w = image.shape[:2]
+            ocr = self._select_ocr(options)
+            # Correction runs use a dedicated engine built with corrections on;
+            # the per-call flags below are consistent there and all False for
+            # the normal engine.
+            predict_kwargs = options.predict_kwargs()
 
-            future = self._predict_pool.submit(self._ocr.predict, image)  # type: ignore[union-attr]
+            future = self._predict_pool.submit(ocr.predict, image, **predict_kwargs)  # type: ignore[union-attr]
             try:
                 result = future.result(timeout=_PREDICT_TIMEOUT)
             except concurrent.futures.TimeoutError:
@@ -196,7 +222,7 @@ class OCREngine(QObject):
             items = []
             idx = 0
             for text, score, poly, box in zip(texts, scores, polys, boxes):
-                if float(score) < min_confidence:
+                if float(score) < options.min_confidence:
                     continue
                 items.append(
                     OCRResultItem(
