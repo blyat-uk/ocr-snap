@@ -523,14 +523,7 @@ class OCRCanvas(QGraphicsView):
         self._remove_placeholder()
         self._stop_processing()
 
-        # Clear existing scene items
-        for gfx_item in self._ocr_items:
-            self._scene.removeItem(gfx_item)
-        self._ocr_items.clear()
-        self._clear_overlay_items()
-        self._item_groups.clear()
-        self._fading_groups.clear()
-        self._fade_timer.stop()
+        self.clear_results()
 
         if self._pixmap_item is not None:
             self._scene.removeItem(self._pixmap_item)
@@ -549,6 +542,32 @@ class OCRCanvas(QGraphicsView):
         if state.ocr_results is not None:
             self.set_ocr_results(state.ocr_results, state.selection_model, visible=True)
 
+    def set_working_pixmap(self, pixmap: QPixmap) -> None:
+        """Swap the displayed image (live preview) without emitting
+        ``image_loaded``. Preserves the current fit/zoom flag (fits if no
+        image has been loaded yet).
+        """
+        self._remove_placeholder()
+        if self._pixmap_item is not None:
+            self._scene.removeItem(self._pixmap_item)
+        item = self._scene.addPixmap(pixmap)
+        assert item is not None
+        item.setZValue(0)
+        self._pixmap_item = item
+        self.setSceneRect(QRectF(pixmap.rect().toRectF()))
+        if self._fit_to_view:
+            self.fitInView(item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def clear_results(self) -> None:
+        """Remove all OCR bbox + overlay items (e.g. when results go stale)."""
+        for gfx_item in self._ocr_items:
+            self._scene.removeItem(gfx_item)
+        self._ocr_items.clear()
+        self._clear_overlay_items()
+        self._item_groups.clear()
+        self._fading_groups.clear()
+        self._fade_timer.stop()
+
     # ── OCR results ─────────────────────────────────────────────────
 
     def set_ocr_results(
@@ -558,13 +577,7 @@ class OCRCanvas(QGraphicsView):
         *,
         visible: bool = False,
     ) -> None:
-        for gfx_item in self._ocr_items:
-            self._scene.removeItem(gfx_item)
-        self._ocr_items.clear()
-        self._clear_overlay_items()
-        self._item_groups.clear()
-        self._fading_groups.clear()
-        self._fade_timer.stop()
+        self.clear_results()
         self._selection_model = selection_model
 
         if not results.items:
@@ -707,10 +720,7 @@ class OCRCanvas(QGraphicsView):
 
         if self._pixmap_item:
             self._scene.removeItem(self._pixmap_item)
-        for gfx_item in self._ocr_items:
-            self._scene.removeItem(gfx_item)
-        self._ocr_items.clear()
-        self._clear_overlay_items()
+        self.clear_results()
 
         pixmap_item = self._scene.addPixmap(pixmap)
         assert pixmap_item is not None
