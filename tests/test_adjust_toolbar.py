@@ -340,3 +340,101 @@ def test_toolbar_indicator_invalid_state_raises(qapp) -> None:
     tb = AdjustToolbar()
     with pytest.raises(ValueError, match="indicator state"):
         tb.set_indicator("nonsense")  # type: ignore[arg-type]
+
+
+# ── Commit signal — auto-OCR should fire on slider RELEASE, not every tick ──
+
+
+def test_slider_popover_drag_value_changed_does_not_commit(qapp) -> None:
+    """While the user is dragging the slider, value_changed fires for live
+    preview but value_committed must stay silent until release."""
+    pop = _SliderPopover(
+        title="Rotate", min_val=-180, max_val=180,
+        default=0, current=0, value_text=lambda v: f"{v}°",
+    )
+    changed: list[int] = []
+    committed: list[int] = []
+    pop.value_changed.connect(changed.append)
+    pop.value_committed.connect(committed.append)
+    pop._slider.sliderPressed.emit()  # user grabs the handle
+    pop._slider.setValue(45)
+    pop._slider.setValue(60)
+    assert changed == [45, 60]
+    assert committed == []  # mid-drag — not yet committed
+    pop._slider.sliderReleased.emit()  # user lets go
+    assert committed == [60]  # commit fires once with the final value
+
+
+def test_slider_popover_value_change_outside_drag_commits(qapp) -> None:
+    """A valueChanged outside a drag (keyboard arrow, programmatic) is a
+    committed change — there's no separate "release" event coming."""
+    pop = _SliderPopover(
+        title="Rotate", min_val=-180, max_val=180,
+        default=0, current=0, value_text=lambda v: f"{v}°",
+    )
+    committed: list[int] = []
+    pop.value_committed.connect(committed.append)
+    pop._slider.setValue(30)  # no sliderPressed first
+    assert committed == [30]
+
+
+def test_slider_pill_forwards_value_committed(qapp) -> None:
+    pill = _SliderPill(
+        Icons.rotate, "Rotate",
+        min_val=-180, max_val=180, default=0, value_text=lambda v: f"{v}°",
+    )
+    pill.click()  # opens popover
+    pop = pill._popover
+    assert pop is not None
+    committed: list[int] = []
+    pill.value_committed.connect(committed.append)
+    pop._slider.sliderPressed.emit()
+    pop._slider.setValue(45)
+    assert committed == []  # mid-drag
+    pop._slider.sliderReleased.emit()
+    assert committed == [45]
+
+
+def test_toolbar_slider_release_emits_adjustments_committed(qapp) -> None:
+    tb = AdjustToolbar()
+    tb._rotation.click()
+    pop = tb._rotation._popover
+    assert pop is not None
+    committed: list[Adjustments] = []
+    tb.adjustments_committed.connect(committed.append)
+    pop._slider.sliderPressed.emit()
+    pop._slider.setValue(90)
+    assert committed == []  # dragging — no commit yet
+    pop._slider.sliderReleased.emit()
+    assert committed and abs(committed[-1].rotation - 90.0) < 1e-6
+
+
+def test_toolbar_toggle_pill_emits_adjustments_committed(qapp) -> None:
+    """Toggles are one-shot — flipping a checkbox is an immediate commit."""
+    tb = AdjustToolbar()
+    committed: list[Adjustments] = []
+    tb.adjustments_committed.connect(committed.append)
+    tb._grayscale.setChecked(True)
+    assert committed and committed[-1].grayscale is True
+
+
+def test_toolbar_set_crop_emits_both_changed_and_committed(qapp) -> None:
+    """A crop selection from the canvas is a one-shot user commit."""
+    tb = AdjustToolbar()
+    changed: list[Adjustments] = []
+    committed: list[Adjustments] = []
+    tb.adjustments_changed.connect(changed.append)
+    tb.adjustments_committed.connect(committed.append)
+    tb.set_crop((0.1, 0.1, 0.5, 0.5))
+    assert changed and changed[-1].crop == (0.1, 0.1, 0.5, 0.5)
+    assert committed and committed[-1].crop == (0.1, 0.1, 0.5, 0.5)
+
+
+def test_toolbar_set_adjustments_does_not_emit_committed(qapp) -> None:
+    """Programmatic load (e.g. switching images) must NOT fire commits —
+    only user-initiated changes do."""
+    tb = AdjustToolbar()
+    committed: list[Adjustments] = []
+    tb.adjustments_committed.connect(committed.append)
+    tb.set_adjustments(Adjustments(grayscale=True, rotation=45.0))
+    assert committed == []

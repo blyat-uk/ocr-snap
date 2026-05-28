@@ -168,14 +168,24 @@ class _SliderPopover(QWidget):
     """Floating popup containing a slider for a single adjustment value.
 
     Constructed with the value's range, default, current value, and a
-    formatter that turns an int slider value into a display string. Emits
-    ``value_changed(int)`` on every slider tick. ``_reset_to_default``
-    snaps the slider back via ``QSlider.setValue``, which fires
-    ``value_changed`` only when the current value differs from the default
-    (Qt's setter is a no-op when the value is already correct).
+    formatter that turns an int slider value into a display string.
+
+    Two distinct signals model "live" vs "settled" interactions so callers
+    can drive a live preview AND auto-OCR without auto-OCR firing on every
+    drag tick:
+
+    * ``value_changed(int)`` — fires on every slider tick (live preview).
+    * ``value_committed(int)`` — fires only on user-settled changes: at the
+      end of a drag (``sliderReleased``) or on a value change that happens
+      outside a drag (keyboard arrows, programmatic ``setValue``, etc).
+
+    ``_reset_to_default`` snaps the slider back via ``QSlider.setValue``,
+    which fires ``value_changed`` only when the current value differs from
+    the default (Qt's setter is a no-op when the value is already correct).
     """
 
     value_changed = pyqtSignal(int)
+    value_committed = pyqtSignal(int)
 
     def __init__(
         self,
@@ -224,6 +234,9 @@ class _SliderPopover(QWidget):
         self._slider.setRange(min_val, max_val)
         self._slider.setValue(current)
         self._slider.valueChanged.connect(self._on_slider_changed)
+        self._slider.sliderPressed.connect(self._on_slider_pressed)
+        self._slider.sliderReleased.connect(self._on_slider_released)
+        self._dragging = False
         track_row.addWidget(self._slider, stretch=1)
         hi_lbl = QLabel(value_text(max_val))
         hi_lbl.setObjectName("PopEndpoint")
@@ -235,6 +248,19 @@ class _SliderPopover(QWidget):
     def _on_slider_changed(self, value: int) -> None:
         self._value_label.setText(self._value_text(value))
         self.value_changed.emit(value)
+        # If we're not in the middle of a drag, this change is settled
+        # (keyboard arrow, programmatic setValue, click-and-no-drag). The
+        # end-of-drag case is handled by sliderReleased instead, so we
+        # don't double-emit.
+        if not self._dragging:
+            self.value_committed.emit(value)
+
+    def _on_slider_pressed(self) -> None:
+        self._dragging = True
+
+    def _on_slider_released(self) -> None:
+        self._dragging = False
+        self.value_committed.emit(self._slider.value())
 
     def _reset_to_default(self) -> None:
         self._slider.setValue(self._default)
@@ -246,9 +272,16 @@ class _SliderPopover(QWidget):
 class _SliderPill(_Pill):
     """A pill that opens a slider popover on click. The pill's inline
     label shows the base name when at default, or "name value" otherwise.
+
+    Mirrors the popover's two-signal model:
+
+    * ``value_changed(int)`` — every tick of the slider (for live preview).
+    * ``value_committed(int)`` — only on user-settled changes (released
+      after a drag, or a non-drag value change). Auto-OCR keys off this.
     """
 
     value_changed = pyqtSignal(int)
+    value_committed = pyqtSignal(int)
 
     def __init__(
         self,
@@ -316,6 +349,7 @@ class _SliderPill(_Pill):
                 parent=self,
             )
             self._popover.value_changed.connect(self._on_popover_value)
+            self._popover.value_committed.connect(self.value_committed.emit)
         else:
             # Sync the cached popover to the current value before re-showing.
             self._popover._slider.blockSignals(True)
@@ -391,6 +425,7 @@ class AdjustToolbar(QWidget):
     """
 
     adjustments_changed = pyqtSignal(Adjustments)
+    adjustments_committed = pyqtSignal(Adjustments)
     run_ocr_requested = pyqtSignal()
     reset_requested = pyqtSignal()
     crop_mode_toggled = pyqtSignal(bool)
@@ -462,16 +497,22 @@ class AdjustToolbar(QWidget):
             root.addWidget(btn)
 
         # Wiring — every parameter pill rebuilds Adjustments on change.
+        # Sliders distinguish "live tick" (value_changed → adjustments_changed
+        # for the live canvas preview) from "user-settled" (value_committed →
+        # adjustments_committed for auto-OCR). Toggles are one-shot user
+        # actions so they fire both signals naturally.
         for pill in (
             self._rotation, self._brightness, self._contrast, self._sharpen,
             self._sensitivity,
         ):
             pill.value_changed.connect(self._on_control_changed)
+            pill.value_committed.connect(self._on_control_committed)
         for pill in (
             self._grayscale, self._invert, self._binarize,
             self._upscale, self._smart_fix,
         ):
             pill.toggled.connect(self._on_control_changed)
+            pill.toggled.connect(self._on_control_committed)
 
         self._crop_btn.toggled.connect(self.crop_mode_toggled.emit)
         self._reset_btn.clicked.connect(self.reset_requested.emit)
@@ -505,6 +546,13 @@ class AdjustToolbar(QWidget):
         self._adj = self._adjustments_from_widgets(self._adj.crop)
         self.adjustments_changed.emit(self._adj)
 
+    def _on_control_committed(self, *_args: object) -> None:
+        """User-settled change — drives auto-OCR. _adj is already current
+        because `_on_control_changed` runs first on the same control."""
+        if self._loading:
+            return
+        self.adjustments_committed.emit(self._adj)
+
     def current_adjustments(self) -> Adjustments:
         return dataclasses.replace(self._adj)
 
@@ -519,6 +567,8 @@ class AdjustToolbar(QWidget):
             self._crop_btn.setChecked(False)
             self._crop_btn.blockSignals(False)
         self.adjustments_changed.emit(self._adj)
+        # A crop selection is a one-shot user commit — drives auto-OCR.
+        self.adjustments_committed.emit(self._adj)
 
     def set_crop_active(self, active: bool) -> None:
         """Sync the Crop pill to the canvas's actual crop-mode state without
