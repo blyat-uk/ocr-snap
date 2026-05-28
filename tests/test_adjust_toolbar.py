@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 
-from ocr_snap.adjust_toolbar import _Pill, _SliderPopover, _TogglePill
+from ocr_snap.adjust_toolbar import _Pill, _SliderPill, _SliderPopover, _TogglePill
 from ocr_snap.theme import Icons
 
 
@@ -107,3 +107,87 @@ def test_slider_popover_reset_when_already_at_default_is_silent(qapp) -> None:
     pop._reset_to_default()
     assert seen == []
     assert pop._slider.value() == 0
+
+
+def test_slider_pill_idle_label_is_base(qapp) -> None:
+    pill = _SliderPill(
+        Icons.rotate, "Rotate",
+        min_val=-180, max_val=180, default=0,
+        value_text=lambda v: f"{v}°",
+    )
+    assert pill.text() == "Rotate"
+    assert pill.is_active() is False
+    assert pill.value() == 0
+
+
+def test_slider_pill_active_label_appends_value(qapp) -> None:
+    pill = _SliderPill(
+        Icons.rotate, "Rotate",
+        min_val=-180, max_val=180, default=0,
+        value_text=lambda v: f"{v}°",
+    )
+    pill.set_value(45)
+    assert pill.text() == "Rotate 45°"
+    assert pill.is_active() is True
+    assert pill.value() == 45
+    pill.set_value(0)  # back to default
+    assert pill.text() == "Rotate"
+    assert pill.is_active() is False
+
+
+def test_slider_pill_emits_value_changed(qapp) -> None:
+    pill = _SliderPill(
+        Icons.rotate, "Rotate",
+        min_val=-180, max_val=180, default=0,
+        value_text=lambda v: f"{v}°",
+    )
+    seen: list[int] = []
+    pill.value_changed.connect(seen.append)
+    pill.set_value(45)
+    pill.set_value(-30)
+    assert seen == [45, -30]
+
+
+def test_slider_pill_click_opens_popover(qapp) -> None:
+    pill = _SliderPill(
+        Icons.rotate, "Rotate",
+        min_val=-180, max_val=180, default=0,
+        value_text=lambda v: f"{v}°",
+    )
+    assert pill._popover is None
+    pill.click()
+    assert pill._popover is not None
+    assert pill._popover.isVisible()
+
+
+def test_slider_pill_popover_drag_updates_pill_value(qapp) -> None:
+    pill = _SliderPill(
+        Icons.rotate, "Rotate",
+        min_val=-180, max_val=180, default=0,
+        value_text=lambda v: f"{v}°",
+    )
+    pill.click()
+    pop = pill._popover
+    assert pop is not None
+    pop._slider.setValue(75)
+    assert pill.value() == 75
+    assert pill.text() == "Rotate 75°"
+    assert pill.is_active() is True
+
+
+def test_slider_pill_reuses_popover_across_open_close_cycles(qapp) -> None:
+    """A second click closes the popover; a third click re-shows the SAME
+    popover instance (no leak)."""
+    pill = _SliderPill(
+        Icons.rotate, "Rotate",
+        min_val=-180, max_val=180, default=0,
+        value_text=lambda v: f"{v}°",
+    )
+    pill.click()
+    first = pill._popover
+    assert first is not None and first.isVisible()
+    pill.click()  # toggle close
+    assert not first.isVisible()
+    pill.click()  # reopen
+    assert pill._popover is first  # same instance, not a fresh one
+    assert first.isVisible()

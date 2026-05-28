@@ -237,3 +237,101 @@ class _SliderPopover(QWidget):
 
     def value(self) -> int:
         return self._slider.value()
+
+
+class _SliderPill(_Pill):
+    """A pill that opens a slider popover on click. The pill's inline
+    label shows the base name when at default, or "name value" otherwise.
+    """
+
+    value_changed = pyqtSignal(int)
+
+    def __init__(
+        self,
+        icon_factory: IconFactory,
+        label: str,
+        *,
+        min_val: int,
+        max_val: int,
+        default: int,
+        value_text: Callable[[int], str],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(icon_factory, label, parent)
+        self._base_label = label
+        self._min = min_val
+        self._max = max_val
+        self._default = default
+        self._value_text = value_text
+        self._value = default
+        self._popover: _SliderPopover | None = None
+        self.clicked.connect(self._open_popover)
+        self._refresh()
+
+    def value(self) -> int:
+        return self._value
+
+    def set_value(self, value: int) -> None:
+        value = max(self._min, min(self._max, int(value)))
+        if value == self._value:
+            return
+        self._value = value
+        self._refresh()
+        self.value_changed.emit(value)
+        if self._popover is not None:
+            # Keep the popover's slider in sync if it's open while an
+            # external update arrives (e.g. set_adjustments).
+            self._popover._slider.blockSignals(True)
+            self._popover._slider.setValue(value)
+            self._popover._slider.blockSignals(False)
+            self._popover._value_label.setText(self._value_text(value))
+
+    def _refresh(self) -> None:
+        active = self._value != self._default
+        self.set_active(active)
+        if active:
+            self.setText(f"{self._base_label} {self._value_text(self._value)}")
+        else:
+            self.setText(self._base_label)
+
+    def _open_popover(self) -> None:
+        if self._popover is not None and self._popover.isVisible():
+            self._popover.close()
+            return
+        # Reuse the popover across open/close cycles — Qt parents it to the
+        # pill and keeps it alive, so allocating a fresh one each time would
+        # accumulate orphaned children.
+        if self._popover is None:
+            self._popover = _SliderPopover(
+                title=self._base_label,
+                min_val=self._min,
+                max_val=self._max,
+                default=self._default,
+                current=self._value,
+                value_text=self._value_text,
+                parent=self,
+            )
+            self._popover.value_changed.connect(self._on_popover_value)
+        else:
+            # Sync the cached popover to the current value before re-showing.
+            self._popover._slider.blockSignals(True)
+            self._popover._slider.setValue(self._value)
+            self._popover._slider.blockSignals(False)
+            self._popover._value_label.setText(self._value_text(self._value))
+        pop = self._popover
+        # Position above the pill, horizontally centered. Clamp y so the
+        # popover stays visible if the pill is near the top of the screen.
+        pop.adjustSize()
+        pill_top_left = self.mapToGlobal(self.rect().topLeft())
+        x = pill_top_left.x() + (self.width() - pop.width()) // 2
+        y = max(0, pill_top_left.y() - pop.height() - 6)
+        pop.move(x, y)
+        pop.show()
+
+    def _on_popover_value(self, value: int) -> None:
+        # Pop-driven update — drive the pill (which emits value_changed).
+        if value == self._value:
+            return
+        self._value = value
+        self._refresh()
+        self.value_changed.emit(value)
