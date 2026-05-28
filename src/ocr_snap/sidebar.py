@@ -366,6 +366,7 @@ class OCRSidebar(QWidget):
     reocr_requested = pyqtSignal(float)
     overlay_toggled = pyqtSignal(bool)
     copy_image_requested = pyqtSignal()
+    text_edited = pyqtSignal(int, str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -553,6 +554,9 @@ class OCRSidebar(QWidget):
                 on_merge=lambda order: self.merge_requested.emit(order),
                 on_delete=self.delete_requested.emit,
             )
+            if ocr_item.edited:
+                entry.set_edited(True)
+            entry.text_edited.connect(self.text_edited.emit)
             if not visible:
                 entry.hide()
             self._container_layout.addWidget(entry)

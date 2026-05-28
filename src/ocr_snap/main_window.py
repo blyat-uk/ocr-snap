@@ -180,6 +180,7 @@ class MainWindow(QMainWindow):
         self._sidebar.reocr_requested.connect(self._on_reocr_requested)
         self._sidebar.overlay_toggled.connect(self._on_overlay_toggled)
         self._sidebar.copy_image_requested.connect(self._on_copy_image_requested)
+        self._sidebar.text_edited.connect(self._on_text_edited)
         self._gallery.image_selected.connect(self._on_gallery_select)
         self._gallery.image_removed.connect(self._on_gallery_remove)
         self._adjust_toolbar.adjustments_changed.connect(self._on_adjustments_changed)
@@ -477,6 +478,25 @@ class MainWindow(QMainWindow):
             self._start_translation(self._active_id)
 
     # ── Overlay ─────────────────────────────────────────────────────
+
+    def _on_text_edited(self, index: int, new_text: str) -> None:
+        if self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is None or state.ocr_results is None:
+            return
+        if not (0 <= index < len(state.ocr_results.items)):
+            return
+        item = state.ocr_results.items[index]
+        item.text = new_text
+        item.translated_text = None
+        item.edited = True
+        if 0 <= index < len(self._sidebar._entries):
+            entry = self._sidebar._entries[index]
+            entry.clear_translation()
+            entry.set_edited(True)
+        self._canvas.set_overlay_texts(state.ocr_results.items)
+        self._start_translation(self._active_id, only_missing=True)
 
     def _on_overlay_toggled(self, checked: bool) -> None:
         if self._active_id is None:

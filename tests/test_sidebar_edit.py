@@ -108,3 +108,51 @@ def test_set_edited_false_restores_confidence(qapp) -> None:
     entry.set_edited(False)
     assert entry._conf_label.text() == "42%"
     assert entry._conf_label.toolTip() in ("", None)
+
+
+def test_sidebar_forwards_text_edited_signal(qapp) -> None:
+    from ocr_snap.models import OCRResultItem, OCRResults
+    from ocr_snap.sidebar import OCRSidebar
+    import numpy as np
+
+    sb = OCRSidebar()
+    sel = SelectionModel()
+    results = OCRResults(
+        items=[
+            OCRResultItem(
+                index=0, text="hello", confidence=0.99,
+                polygon=np.zeros((4, 2)), bbox=(0, 0, 1, 1),
+            )
+        ],
+        image_width=10, image_height=10,
+    )
+    sb.set_results(results, sel, visible=True)
+    fired: list[tuple[int, str]] = []
+    sb.text_edited.connect(lambda i, t: fired.append((i, t)))
+    entry = sb._entries[0]
+    entry._begin_edit()
+    entry._editor.setPlainText("hi")
+    entry._commit_edit()
+    assert fired == [(0, "hi")]
+
+
+def test_entry_constructed_with_edited_flag_shows_badge(qapp) -> None:
+    from ocr_snap.models import OCRResultItem, OCRResults
+    from ocr_snap.sidebar import OCRSidebar
+    import numpy as np
+
+    sb = OCRSidebar()
+    sel = SelectionModel()
+    results = OCRResults(
+        items=[
+            OCRResultItem(
+                index=0, text="hello", confidence=0.99,
+                polygon=np.zeros((4, 2)), bbox=(0, 0, 1, 1),
+                edited=True,
+            )
+        ],
+        image_width=10, image_height=10,
+    )
+    sb.set_results(results, sel, visible=True)
+    entry = sb._entries[0]
+    assert entry._conf_label.text() == "edited"
