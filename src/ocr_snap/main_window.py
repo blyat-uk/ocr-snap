@@ -182,6 +182,9 @@ class MainWindow(QMainWindow):
         self._gallery.image_selected.connect(self._on_gallery_select)
         self._gallery.image_removed.connect(self._on_gallery_remove)
         self._adjust_toolbar.adjustments_changed.connect(self._on_adjustments_changed)
+        self._adjust_toolbar.adjustments_committed.connect(
+            self._on_adjustments_committed
+        )
         self._adjust_toolbar.run_ocr_requested.connect(self._on_run_ocr_requested)
         self._adjust_toolbar.reset_requested.connect(self._on_adjust_reset)
         self._adjust_toolbar.crop_mode_toggled.connect(self._canvas.set_crop_mode)
@@ -511,8 +514,9 @@ class MainWindow(QMainWindow):
             "adjusted" if not adj.is_identity() else "none"
         )
         self._preview_timer.start()
-        if self._auto_ocr_enabled and not adj.is_identity():
-            self._auto_ocr_timer.start()
+        # Auto-OCR is keyed off `adjustments_committed` (slider release /
+        # toggle / crop) — NOT every tick — so mid-drag changes don't fire
+        # OCR. See `_on_adjustments_committed`.
 
     def _render_preview(self) -> None:
         if self._active_id is None:
@@ -606,6 +610,17 @@ class MainWindow(QMainWindow):
         self._auto_ocr_enabled = active
         if not active:
             self._auto_ocr_timer.stop()
+
+    def _on_adjustments_committed(self, adj: Adjustments) -> None:
+        """User-settled adjustment change (slider release, toggle click,
+        crop set). When Auto-OCR is on, start the debounce timer here —
+        NOT in `_on_adjustments_changed` which fires on every drag tick."""
+        if (
+            self._auto_ocr_enabled
+            and not adj.is_identity()
+            and self._active_id is not None
+        ):
+            self._auto_ocr_timer.start()
 
     def _on_auto_ocr_fire(self) -> None:
         if not self._auto_ocr_enabled or self._active_id is None:
