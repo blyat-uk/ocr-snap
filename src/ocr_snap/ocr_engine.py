@@ -114,6 +114,12 @@ class OCREngine(QObject):
         if options is None:
             options = OCRRunOptions()
         with self._lock:
+            # Supersede any pending entry for the same image_id. The
+            # currently-running predict cannot be cancelled, but its pending
+            # successor is replaced by the latest request.
+            self._queue = collections.deque(
+                entry for entry in self._queue if entry[0] != image_id
+            )
             self._queue.append((image_id, image, options))
             if self._worker is not None and self._worker.is_alive():
                 return
