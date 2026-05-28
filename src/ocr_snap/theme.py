@@ -146,6 +146,18 @@ class Icons:
     def auto_ocr(cls, color: str | None = None) -> QIcon:
         return cls._i("ph.lightning", color)
 
+    @classmethod
+    def eye(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.eye", color)
+
+    @classmethod
+    def image(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.image", color)
+
+    @classmethod
+    def pencil(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.pencil-simple", color)
+
 
 # --- IconButton ---
 

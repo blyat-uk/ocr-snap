@@ -69,3 +69,16 @@ def test_imagestate_adjustment_fields(qapp) -> None:
     assert state.original_pixmap is pixmap
     assert state.adjustments.is_identity()
     assert state.results_snapshot is None
+
+
+def test_ocr_result_item_edited_defaults_to_false() -> None:
+    from ocr_snap.models import OCRResultItem
+
+    item = OCRResultItem(
+        index=0,
+        text="hello",
+        confidence=0.99,
+        polygon=np.zeros((4, 2)),
+        bbox=(0.0, 0.0, 1.0, 1.0),
+    )
+    assert item.edited is False

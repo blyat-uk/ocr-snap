@@ -31,7 +31,7 @@ from ocr_snap.ocr_engine import OCREngine, OCRRunOptions
 from ocr_snap.perf_settings import AppSettings
 from ocr_snap.adjust_toolbar import AdjustToolbar
 from ocr_snap.image_ops import (
-    crop_to_original_normalized,
+    bake_geometry,
     pil_from_pixmap,
     pixmap_from_pil,
     render_display,
@@ -179,6 +179,8 @@ class MainWindow(QMainWindow):
         self._sidebar.confidence_filter_changed.connect(self._on_confidence_filter_changed)
         self._sidebar.reocr_requested.connect(self._on_reocr_requested)
         self._sidebar.overlay_toggled.connect(self._on_overlay_toggled)
+        self._sidebar.copy_image_requested.connect(self._on_copy_image_requested)
+        self._sidebar.text_edited.connect(self._on_text_edited)
         self._gallery.image_selected.connect(self._on_gallery_select)
         self._gallery.image_removed.connect(self._on_gallery_remove)
         self._adjust_toolbar.adjustments_changed.connect(self._on_adjustments_changed)
@@ -258,6 +260,7 @@ class MainWindow(QMainWindow):
                 self._canvas.set_processing(True)
 
         self._gallery.set_active(image_id)
+        self._sync_sidebar_active_state()
 
     # ── OCR results ─────────────────────────────────────────────────
 
@@ -310,6 +313,7 @@ class MainWindow(QMainWindow):
             )
         # Start translation for this image regardless of whether it's active
         self._start_translation(image_id)
+        self._sync_sidebar_active_state()
 
     def _reveal_next(self) -> None:
         if self._reveal_index >= self._reveal_count:
@@ -475,6 +479,25 @@ class MainWindow(QMainWindow):
 
     # ── Overlay ─────────────────────────────────────────────────────
 
+    def _on_text_edited(self, index: int, new_text: str) -> None:
+        if self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is None or state.ocr_results is None:
+            return
+        if not (0 <= index < len(state.ocr_results.items)):
+            return
+        item = state.ocr_results.items[index]
+        item.text = new_text
+        item.translated_text = None
+        item.edited = True
+        if 0 <= index < len(self._sidebar._entries):
+            entry = self._sidebar._entries[index]
+            entry.clear_translation()
+            entry.set_edited(True)
+        self._canvas.set_overlay_texts(state.ocr_results.items)
+        self._start_translation(self._active_id, only_missing=True)
+
     def _on_overlay_toggled(self, checked: bool) -> None:
         if self._active_id is None:
             return
@@ -482,6 +505,20 @@ class MainWindow(QMainWindow):
         if state is not None:
             state.overlay_enabled = checked
         self._canvas.set_overlay_visible(checked)
+
+    def _on_copy_image_requested(self) -> None:
+        if self._active_id is None:
+            return
+        try:
+            pixmap = self._canvas.grab()
+            clipboard = QApplication.clipboard()
+            if clipboard is None:
+                raise RuntimeError("Clipboard unavailable")
+            clipboard.setPixmap(pixmap)
+        except (OSError, RuntimeError) as exc:
+            self._status_bar.showMessage(f"Could not copy image: {exc}", 5000)
+            return
+        self._status_bar.showMessage("Image copied to clipboard.", 3000)
 
     # ── Image adjustments ───────────────────────────────────────────
 
@@ -529,25 +566,30 @@ class MainWindow(QMainWindow):
         self._canvas.set_working_pixmap(state.pixmap)
 
     def _on_crop_selected(self, rect: QRectF) -> None:
-        # The canvas emits rect normalized against the WORKING pixmap, which
-        # has the current adjustments (crop + rotation) baked in. Adjustments
-        # .crop is defined in ORIGINAL-image space, so back-transform here.
+        # The canvas emits ``rect`` normalized against the WORKING pixmap.
+        # Bake any prior geometry (rotation + previous crop) into the working
+        # source so the drawn rect can be stored verbatim as ``Adjustments
+        # .crop``. The back-transform path (axis-aligned bbox of an inverse-
+        # rotated quad) was lossy for non-90° rotations and produced a crop
+        # that included a slightly-larger region than the user drew.
         if self._active_id is None:
             return
         state = self._images.get(self._active_id)
         if state is None:
             return
+
+        src = self._preview_source(state)
+        baked, new_adj = bake_geometry(src, state.adjustments)
+        if baked is not src:
+            state.original_pixmap = pixmap_from_pil(baked)
+            self._preview_sources[state.image_id] = baked
+            state.adjustments = new_adj
+            self._adjust_toolbar.set_adjustments(new_adj)  # silent
+
         working_rect = (rect.x(), rect.y(), rect.width(), rect.height())
-        crop = crop_to_original_normalized(
-            working_rect,
-            working_size=(state.pixmap.width(), state.pixmap.height()),
-            adj=state.adjustments,
-            original_size=(
-                state.original_pixmap.width(),
-                state.original_pixmap.height(),
-            ),
-        )
-        self._adjust_toolbar.set_crop(crop)  # emits adjustments_changed -> preview
+        # ``set_crop`` emits adjustments_changed (-> preview re-render) and
+        # adjustments_committed (-> auto-OCR debounce).
+        self._adjust_toolbar.set_crop(working_rect)
 
     def _on_run_ocr_requested(self) -> None:
         if self._active_id is None:
@@ -578,6 +620,10 @@ class MainWindow(QMainWindow):
         if state is None:
             return
         self._preview_timer.stop()  # cancel any pending preview tick
+        # Roll the working source back to the pristine image — undoing any
+        # geometry that was baked in by ``_on_crop_selected``.
+        state.original_pixmap = state.pristine_pixmap
+        self._preview_sources.pop(state.image_id, None)
         state.adjustments = Adjustments()
         state.pixmap = state.original_pixmap
         self._adjust_toolbar.set_adjustments(state.adjustments)
@@ -605,6 +651,18 @@ class MainWindow(QMainWindow):
         if not state.adjustments.is_identity():
             return "adjusted"
         return "none"
+
+    def _sync_sidebar_active_state(self) -> None:
+        state = (
+            self._images.get(self._active_id) if self._active_id is not None else None
+        )
+        has_image = state is not None
+        has_results = (
+            state is not None
+            and state.ocr_results is not None
+            and bool(state.ocr_results.items)
+        )
+        self._sidebar.set_active_state(has_image, has_results)
 
     def _on_auto_ocr_toggled(self, active: bool) -> None:
         self._auto_ocr_enabled = active
@@ -662,11 +720,20 @@ class MainWindow(QMainWindow):
 
     # ── Translation ─────────────────────────────────────────────────
 
-    def _start_translation(self, image_id: str) -> None:
+    def _start_translation(self, image_id: str, *, only_missing: bool = False) -> None:
         state = self._images.get(image_id)
         if state is None or state.ocr_results is None:
             return
-        items = [(it.index, it.text) for it in state.ocr_results.items]
+        if only_missing:
+            items = [
+                (it.index, it.text)
+                for it in state.ocr_results.items
+                if it.translated_text is None
+            ]
+        else:
+            items = [(it.index, it.text) for it in state.ocr_results.items]
+        if not items:
+            return
         if not self._translator.translate(image_id, items):
             return
         state.translation_running = True
@@ -724,6 +791,7 @@ class MainWindow(QMainWindow):
             self._sidebar.hide()
             self._adjust_toolbar.hide()
             self._gallery.hide()
+            self._sync_sidebar_active_state()
             return
 
         if self._gallery.count < 2:
@@ -734,6 +802,7 @@ class MainWindow(QMainWindow):
             new_idx = min(idx, len(self._image_order) - 1)
             self._active_id = None  # prevent saving view state for removed image
             self._switch_to(self._image_order[new_idx])
+        self._sync_sidebar_active_state()
 
     # ── Errors ──────────────────────────────────────────────────────
 
@@ -744,6 +813,7 @@ class MainWindow(QMainWindow):
             state = self._images.get(self._active_id)
             if state is not None:
                 self._adjust_toolbar.set_indicator(self._indicator_state_for(state))
+        self._sync_sidebar_active_state()
 
     def _on_model_load_failed(self, message: str) -> None:
         self._status_bar.showMessage(

@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, pyqtSignal
+from PyQt6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QContextMenuEvent, QEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -14,12 +13,14 @@ from PyQt6.QtWidgets import (
     QMenu,
     QScrollArea,
     QSlider,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from ocr_snap.canvas import _add_merge_permutation_actions
 from ocr_snap.models import OCRResults, SelectionModel, item_color
+from ocr_snap.pill import Pill, TogglePill
 from ocr_snap.theme import Icons, IconButton, StatusChip, Tokens
 
 _ENTRY_STYLE = f"""
@@ -36,10 +37,14 @@ _SEPARATOR_STYLE = f"background: {Tokens.border}; border: none; max-height: 1px;
 
 
 class _TextZone(QWidget):
-    """A hover zone containing content labels and a copy button that appears on hover."""
+    """A hover zone containing content labels and copy/edit buttons that
+    appear on hover. Edit button is created when ``edit_callback`` is given."""
 
     def __init__(
-        self, copy_callback: Callable[[], None], parent: QWidget | None = None
+        self,
+        copy_callback: Callable[[], None],
+        edit_callback: Callable[[], None] | None = None,
+        parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self.setMouseTracking(True)
@@ -52,6 +57,13 @@ class _TextZone(QWidget):
         self._content_layout.setSpacing(2)
         layout.addLayout(self._content_layout, stretch=1)
 
+        self._edit_btn: IconButton | None = None
+        if edit_callback is not None:
+            self._edit_btn = IconButton(Icons.pencil(), tooltip="Edit", size=14)
+            self._edit_btn.clicked.connect(edit_callback)
+            self._edit_btn.hide()
+            layout.addWidget(self._edit_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+
         self._copy_btn = IconButton(Icons.copy(), tooltip="Copy", size=14)
         self._copy_btn.clicked.connect(copy_callback)
         self._copy_btn.hide()
@@ -60,16 +72,22 @@ class _TextZone(QWidget):
     def add_widget(self, widget: QWidget) -> None:
         self._content_layout.addWidget(widget)
 
-    def enterEvent(self, event: QEnterEvent | None) -> None:
+    def enterEvent(self, event):  # type: ignore[override, no-untyped-def]
+        if self._edit_btn is not None:
+            self._edit_btn.show()
         self._copy_btn.show()
         super().enterEvent(event)
 
-    def leaveEvent(self, event: QEnterEvent | None) -> None:  # type: ignore[override]
+    def leaveEvent(self, event):  # type: ignore[override, no-untyped-def]
+        if self._edit_btn is not None:
+            self._edit_btn.hide()
         self._copy_btn.hide()
         super().leaveEvent(event)
 
 
 class SidebarEntry(QFrame):
+    text_edited = pyqtSignal(int, str)
+
     def __init__(
         self,
         index: int,
@@ -113,13 +131,13 @@ class SidebarEntry(QFrame):
         )
         badge_layout.addWidget(idx_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        conf_label = QLabel(f"{confidence:.0%}")
-        conf_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        conf_label.setStyleSheet(
+        self._conf_label = QLabel(f"{confidence:.0%}")
+        self._conf_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._conf_label.setStyleSheet(
             f"color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px; "
             f"background: transparent; border: none;"
         )
-        badge_layout.addWidget(conf_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        badge_layout.addWidget(self._conf_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         layout.addLayout(badge_layout)
 
@@ -128,7 +146,7 @@ class SidebarEntry(QFrame):
         zones_layout.setSpacing(4)
 
         # Original text zone
-        self._original_zone = _TextZone(self._copy_original)
+        self._original_zone = _TextZone(self._copy_original, self._begin_edit)
 
         text_label = QLabel(text)
         text_label.setWordWrap(True)
@@ -137,6 +155,8 @@ class SidebarEntry(QFrame):
             f"background: transparent; border: none; min-height: 25px;"
         )
         self._original_zone.add_widget(text_label)
+        self._text_label = text_label
+        self._editor: QTextEdit | None = None
 
         zones_layout.addWidget(self._original_zone)
 
@@ -171,6 +191,28 @@ class SidebarEntry(QFrame):
         self._translation_label.setText(text)
         self._separator.show()
         self._translation_zone.show()
+
+    def clear_translation(self) -> None:
+        self._translated_text = None
+        self._translation_label.clear()
+        self._separator.hide()
+        self._translation_zone.hide()
+
+    def set_edited(self, edited: bool) -> None:
+        if edited:
+            self._conf_label.setText("edited")
+            self._conf_label.setStyleSheet(
+                f"color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px; "
+                f"background: transparent; border: none; font-style: italic;"
+            )
+            self._conf_label.setToolTip(f"Manually edited (was {self._confidence:.0%})")
+        else:
+            self._conf_label.setText(f"{self._confidence:.0%}")
+            self._conf_label.setStyleSheet(
+                f"color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px; "
+                f"background: transparent; border: none;"
+            )
+            self._conf_label.setToolTip("")
 
     def _copy_original(self) -> None:
         clipboard = QApplication.clipboard()
@@ -207,6 +249,76 @@ class SidebarEntry(QFrame):
         sel = self._selection_model.selected_indices
         if sel == frozenset({self._index}):
             self._scroll_area.ensureWidgetVisible(self)
+
+    def _begin_edit(self) -> None:
+        if self._editor is not None:
+            return
+        editor = QTextEdit(self._text)
+        editor.setStyleSheet(
+            f"QTextEdit {{ color: {Tokens.text_primary}; "
+            f"font-size: {Tokens.text_lg}px; "
+            f"background: {Tokens.bg_deepest}; "
+            f"border: 1px solid #d4a843; border-radius: 4px; "
+            f"padding: 2px 6px; }}"
+        )
+        editor.setAcceptRichText(False)
+        editor.setTabChangesFocus(True)
+        editor.installEventFilter(self)
+        editor.document().contentsChanged.connect(
+            lambda: self._resize_editor_to_content(editor)
+        )
+        self._editor = editor
+        self._text_label.hide()
+        self._original_zone.add_widget(editor)
+        editor.setFocus()
+        editor.moveCursor(editor.textCursor().MoveOperation.End)
+        self._resize_editor_to_content(editor)
+
+    def _resize_editor_to_content(self, editor: QTextEdit) -> None:
+        doc_h = int(editor.document().size().height())
+        editor.setFixedHeight(max(28, doc_h + 8))
+
+    def eventFilter(self, obj, event):  # type: ignore[override, no-untyped-def]
+        if obj is self._editor and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            mods = event.modifiers()
+            if key == Qt.Key.Key_Escape:
+                self._cancel_edit()
+                return True
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if mods & Qt.KeyboardModifier.ShiftModifier:
+                    return False  # let the editor insert a newline
+                self._commit_edit()
+                return True
+        if obj is self._editor and event.type() == QEvent.Type.FocusOut:
+            if self._editor is not None:
+                self._commit_edit()
+            return False  # don't consume; allow normal focus-out processing
+        return super().eventFilter(obj, event)
+
+    def _commit_edit(self) -> None:
+        if self._editor is None:
+            return
+        new_text = self._editor.toPlainText().strip()
+        editor = self._editor
+        self._editor = None
+        editor.setParent(None)
+        editor.deleteLater()
+        self._text_label.show()
+        if not new_text or new_text == self._text:
+            return
+        self._text = new_text
+        self._text_label.setText(new_text)
+        self.text_edited.emit(self._index, new_text)
+
+    def _cancel_edit(self) -> None:
+        if self._editor is None:
+            return
+        editor = self._editor
+        self._editor = None
+        editor.setParent(None)
+        editor.deleteLater()
+        self._text_label.show()
 
     def enterEvent(self, event: QEnterEvent | None) -> None:
         self._selection_model.hovered_index = self._index
@@ -253,6 +365,8 @@ class OCRSidebar(QWidget):
     confidence_filter_changed = pyqtSignal(float)
     reocr_requested = pyqtSignal(float)
     overlay_toggled = pyqtSignal(bool)
+    copy_image_requested = pyqtSignal()
+    text_edited = pyqtSignal(int, str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -283,17 +397,27 @@ class OCRSidebar(QWidget):
 
         layout.addLayout(header_layout)
 
-        # Confidence threshold slider
-        slider_layout = QHBoxLayout()
-        slider_layout.setContentsMargins(14, 0, 14, 6)
-        slider_layout.setSpacing(8)
+        # ── Controls card ───────────────────────────────────────────────
+        controls_card = QFrame()
+        controls_card.setStyleSheet(
+            f"QFrame {{ background: {Tokens.bg_surface}; "
+            f"border: 1px solid {Tokens.border}; "
+            f"border-radius: {Tokens.r_md}px; }}"
+        )
+        controls_card_layout = QVBoxLayout(controls_card)
+        controls_card_layout.setContentsMargins(12, 10, 12, 10)
+        controls_card_layout.setSpacing(8)
+
+        slider_row = QHBoxLayout()
+        slider_row.setContentsMargins(0, 0, 0, 0)
+        slider_row.setSpacing(8)
 
         slider_label = QLabel("Min confidence")
         slider_label.setStyleSheet(
             f"color: {Tokens.text_muted}; font-size: {Tokens.text_base}px; "
             f"background: transparent; border: none;"
         )
-        slider_layout.addWidget(slider_label)
+        slider_row.addWidget(slider_label)
 
         self._confidence_slider = QSlider(Qt.Orientation.Horizontal)
         self._confidence_slider.setRange(0, 100)
@@ -310,7 +434,7 @@ class OCRSidebar(QWidget):
             f"  background: {Tokens.accent};"
             f"}}"
         )
-        slider_layout.addWidget(self._confidence_slider, stretch=1)
+        slider_row.addWidget(self._confidence_slider, stretch=1)
 
         self._confidence_value_label = QLabel("50%")
         self._confidence_value_label.setFixedWidth(36)
@@ -318,30 +442,32 @@ class OCRSidebar(QWidget):
             f"color: {Tokens.text_primary}; font-size: {Tokens.text_base}px; "
             f"background: transparent; border: none;"
         )
-        slider_layout.addWidget(self._confidence_value_label)
+        slider_row.addWidget(self._confidence_value_label)
 
-        layout.addLayout(slider_layout)
+        controls_card_layout.addLayout(slider_row)
+
+        pills_row = QHBoxLayout()
+        pills_row.setContentsMargins(0, 0, 0, 0)
+        pills_row.setSpacing(6)
+
+        self._overlay_pill = TogglePill(Icons.eye, "Overlay")
+        self._overlay_pill.toggled.connect(self.overlay_toggled.emit)
+        pills_row.addWidget(self._overlay_pill)
+
+        self._copy_image_pill = Pill(Icons.image, "Copy image")
+        self._copy_image_pill.clicked.connect(self.copy_image_requested.emit)
+        pills_row.addWidget(self._copy_image_pill)
+
+        pills_row.addStretch()
+        controls_card_layout.addLayout(pills_row)
+
+        card_wrapper_layout = QHBoxLayout()
+        card_wrapper_layout.setContentsMargins(14, 0, 14, 8)
+        card_wrapper_layout.addWidget(controls_card)
+        layout.addLayout(card_wrapper_layout)
 
         self._confidence_slider.valueChanged.connect(self._on_slider_value_changed)
         self._confidence_slider.sliderReleased.connect(self._on_slider_released)
-
-        # Overlay checkbox
-        overlay_layout = QHBoxLayout()
-        overlay_layout.setContentsMargins(14, 0, 14, 6)
-        self._overlay_checkbox = QCheckBox("Overlay")
-        self._overlay_checkbox.setStyleSheet(
-            f"QCheckBox {{ color: {Tokens.text_primary}; font-size: {Tokens.text_base}px; "
-            f"background: transparent; border: none; }}"
-            f"QCheckBox::indicator {{ width: 14px; height: 14px; }}"
-            f"QCheckBox::indicator:unchecked {{ border: 1px solid {Tokens.border_strong}; "
-            f"border-radius: 2px; background: transparent; }}"
-            f"QCheckBox::indicator:checked {{ border: 1px solid {Tokens.translation}; "
-            f"border-radius: 2px; background: {Tokens.translation}; }}"
-        )
-        self._overlay_checkbox.toggled.connect(self.overlay_toggled.emit)
-        overlay_layout.addWidget(self._overlay_checkbox)
-        overlay_layout.addStretch()
-        layout.addLayout(overlay_layout)
 
         self._scroll_area = QScrollArea()
         self._scroll_area.setWidgetResizable(True)
@@ -428,6 +554,9 @@ class OCRSidebar(QWidget):
                 on_merge=lambda order: self.merge_requested.emit(order),
                 on_delete=self.delete_requested.emit,
             )
+            if ocr_item.edited:
+                entry.set_edited(True)
+            entry.text_edited.connect(self.text_edited.emit)
             if not visible:
                 entry.hide()
             self._container_layout.addWidget(entry)
@@ -481,9 +610,15 @@ class OCRSidebar(QWidget):
         self.confidence_filter_changed.emit(value / 100.0)
 
     def set_overlay_checked(self, checked: bool) -> None:
-        self._overlay_checkbox.blockSignals(True)
-        self._overlay_checkbox.setChecked(checked)
-        self._overlay_checkbox.blockSignals(False)
+        self._overlay_pill.blockSignals(True)
+        self._overlay_pill.setChecked(checked)
+        self._overlay_pill.blockSignals(False)
+
+    def set_active_state(self, has_image: bool, has_results: bool) -> None:
+        """Gate the action pills. Copy image needs an active image; Overlay
+        needs OCR results to be meaningful."""
+        self._copy_image_pill.setEnabled(has_image)
+        self._overlay_pill.setEnabled(has_image and has_results)
 
     def _on_slider_released(self) -> None:
         value = self._confidence_slider.value() / 100.0
