@@ -700,11 +700,20 @@ class MainWindow(QMainWindow):
 
     # ── Translation ─────────────────────────────────────────────────
 
-    def _start_translation(self, image_id: str) -> None:
+    def _start_translation(self, image_id: str, *, only_missing: bool = False) -> None:
         state = self._images.get(image_id)
         if state is None or state.ocr_results is None:
             return
-        items = [(it.index, it.text) for it in state.ocr_results.items]
+        if only_missing:
+            items = [
+                (it.index, it.text)
+                for it in state.ocr_results.items
+                if it.translated_text is None
+            ]
+        else:
+            items = [(it.index, it.text) for it in state.ocr_results.items]
+        if not items:
+            return
         if not self._translator.translate(image_id, items):
             return
         state.translation_running = True
