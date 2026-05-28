@@ -9,11 +9,13 @@ together and mirrors the previous ``AdjustPanel``'s public signal contract.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -22,7 +24,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ocr_snap.theme import Tokens
+from ocr_snap.models import Adjustments
+from ocr_snap.theme import Icons, Tokens
 
 
 # Local "active" palette — evokes the canvas scan-line / OCR-processing
@@ -335,3 +338,171 @@ class _SliderPill(_Pill):
         self._value = value
         self._refresh()
         self.value_changed.emit(value)
+
+
+_INDICATOR_STYLE = f"""
+QLabel#AdjIndicator {{
+    color: {_ON_TEXT};
+    font-size: {Tokens.text_eyebrow}px;
+    background: transparent;
+    border: none;
+    padding: 0 4px;
+}}
+"""
+
+
+def _divider() -> QFrame:
+    line = QFrame()
+    line.setFrameShape(QFrame.Shape.VLine)
+    line.setStyleSheet(f"color: {Tokens.border};")
+    return line
+
+
+# Slider value formatters — int → str. Kept as module-level functions so
+# tests / debugging can refer to them by name if needed.
+def _fmt_degrees(v: int) -> str:
+    return f"{v}°"
+
+
+def _fmt_percent_delta(v: int) -> str:
+    # Brightness / Contrast: 100 = identity (1.0 factor), shown as +/- delta.
+    return f"{v - 100:+d}%"
+
+
+def _fmt_percent(v: int) -> str:
+    return f"{v}%"
+
+
+class AdjustToolbar(QWidget):
+    """Bottom toolbar containing every image-adjustment control as a pill.
+
+    Three logical groups: Image and OCR are separated by a vertical
+    divider; Actions are pinned right by an addStretch() gap.
+      Image (live-preview):  Rotate · Brightness · Contrast · Sharpen ·
+                              Grayscale · Invert · Binarize
+      OCR (next-run):        Upscale · Smart fix · Sensitivity
+      Actions:               Crop · Reset · Auto · Run OCR
+
+    Mirrors AdjustPanel's signal contract; adds ``auto_ocr_toggled(bool)``
+    for the new Auto pill. The Adjustments value object is built from the
+    live pill values — Auto is intentionally NOT part of Adjustments (it's
+    a UI mode).
+    """
+
+    adjustments_changed = pyqtSignal(Adjustments)
+    run_ocr_requested = pyqtSignal()
+    reset_requested = pyqtSignal()
+    crop_mode_toggled = pyqtSignal(bool)
+    auto_ocr_toggled = pyqtSignal(bool)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._adj = Adjustments()
+        self._loading = False
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(10, 6, 10, 6)
+        root.setSpacing(6)
+
+        # ── Image group ──
+        self._rotation = _SliderPill(
+            Icons.rotate, "Rotate",
+            min_val=-180, max_val=180, default=0, value_text=_fmt_degrees,
+        )
+        self._brightness = _SliderPill(
+            Icons.brightness, "Brightness",
+            min_val=20, max_val=200, default=100, value_text=_fmt_percent_delta,
+        )
+        self._contrast = _SliderPill(
+            Icons.contrast, "Contrast",
+            min_val=20, max_val=200, default=100, value_text=_fmt_percent_delta,
+        )
+        self._sharpen = _SliderPill(
+            Icons.sharpen, "Sharpen",
+            min_val=0, max_val=200, default=0, value_text=_fmt_percent,
+        )
+        self._grayscale = _TogglePill(Icons.grayscale, "Grayscale")
+        self._invert = _TogglePill(Icons.invert, "Invert")
+        self._binarize = _TogglePill(Icons.binarize, "Binarize")
+        for pill in (
+            self._rotation, self._brightness, self._contrast, self._sharpen,
+            self._grayscale, self._invert, self._binarize,
+        ):
+            root.addWidget(pill)
+
+        root.addWidget(_divider())
+
+        # ── OCR group ──
+        self._upscale = _TogglePill(Icons.upscale, "Upscale")
+        self._smart_fix = _TogglePill(Icons.smart_fix, "Smart fix")
+        self._sensitivity = _SliderPill(
+            Icons.sensitivity, "Sensitivity",
+            min_val=0, max_val=100, default=0, value_text=_fmt_percent,
+        )
+        for pill in (self._upscale, self._smart_fix, self._sensitivity):
+            root.addWidget(pill)
+
+        root.addStretch()
+
+        # ── Actions group ──
+        self._indicator = QLabel("")
+        self._indicator.setObjectName("AdjIndicator")
+        self._indicator.setStyleSheet(_INDICATOR_STYLE)
+        self._indicator.hide()
+        root.addWidget(self._indicator)
+
+        self._crop_btn = _TogglePill(Icons.crop, "Crop")
+        self._reset_btn = _Pill(Icons.reset, "Reset")
+        self._auto_btn = _TogglePill(Icons.auto_ocr, "Auto")
+        self._run_btn = _Pill(Icons.run_ocr, "Run OCR")
+        # Run OCR is the primary CTA — always-amber.
+        self._run_btn.set_active(True)
+        for btn in (self._crop_btn, self._reset_btn, self._auto_btn, self._run_btn):
+            root.addWidget(btn)
+
+        # Wiring — every parameter pill rebuilds Adjustments on change.
+        for pill in (
+            self._rotation, self._brightness, self._contrast, self._sharpen,
+            self._sensitivity,
+        ):
+            pill.value_changed.connect(self._on_control_changed)
+        for pill in (
+            self._grayscale, self._invert, self._binarize,
+            self._upscale, self._smart_fix,
+        ):
+            pill.toggled.connect(self._on_control_changed)
+
+        self._crop_btn.toggled.connect(self.crop_mode_toggled.emit)
+        self._reset_btn.clicked.connect(self.reset_requested.emit)
+        self._auto_btn.toggled.connect(self.auto_ocr_toggled.emit)
+        self._run_btn.clicked.connect(self.run_ocr_requested.emit)
+
+    # ── State ────────────────────────────────────────────────────────
+
+    def _adjustments_from_widgets(
+        self, crop: tuple[float, float, float, float] | None
+    ) -> Adjustments:
+        """Build Adjustments from the current pill values. Crop is passed
+        through (managed separately via ``set_crop`` in Task 7)."""
+        return Adjustments(
+            rotation=float(self._rotation.value()),
+            crop=crop,
+            brightness=self._brightness.value() / 100.0,
+            contrast=self._contrast.value() / 100.0,
+            grayscale=self._grayscale.isChecked(),
+            invert=self._invert.isChecked(),
+            binarize=self._binarize.isChecked(),
+            sharpen=self._sharpen.value() / 100.0,
+            upscale=self._upscale.isChecked(),
+            det_sensitivity=self._sensitivity.value() / 100.0,
+            smart_fix=self._smart_fix.isChecked(),
+        )
+
+    def _on_control_changed(self, *_args: object) -> None:
+        if self._loading:
+            return
+        self._adj = self._adjustments_from_widgets(self._adj.crop)
+        self.adjustments_changed.emit(self._adj)
+
+    def current_adjustments(self) -> Adjustments:
+        return dataclasses.replace(self._adj)

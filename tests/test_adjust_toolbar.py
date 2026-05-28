@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 
-from ocr_snap.adjust_toolbar import _Pill, _SliderPill, _SliderPopover, _TogglePill
+from ocr_snap.adjust_toolbar import AdjustToolbar, _Pill, _SliderPill, _SliderPopover, _TogglePill
+from ocr_snap.models import Adjustments
 from ocr_snap.theme import Icons
 
 
@@ -191,3 +192,93 @@ def test_slider_pill_reuses_popover_across_open_close_cycles(qapp) -> None:
     pill.click()  # reopen
     assert pill._popover is first  # same instance, not a fresh one
     assert first.isVisible()
+
+
+def test_toolbar_default_is_identity(qapp) -> None:
+    tb = AdjustToolbar()
+    assert tb.current_adjustments().is_identity()
+
+
+def test_toolbar_grayscale_toggle_emits_change(qapp) -> None:
+    tb = AdjustToolbar()
+    seen: list[Adjustments] = []
+    tb.adjustments_changed.connect(seen.append)
+    tb._grayscale.setChecked(True)
+    assert seen and seen[-1].grayscale is True
+    assert tb.current_adjustments().grayscale is True
+
+
+def test_toolbar_rotate_slider_pill_emits_change(qapp) -> None:
+    tb = AdjustToolbar()
+    seen: list[Adjustments] = []
+    tb.adjustments_changed.connect(seen.append)
+    tb._rotation.set_value(90)
+    assert seen and abs(seen[-1].rotation - 90.0) < 1e-6
+
+
+def test_toolbar_brightness_scales_to_factor(qapp) -> None:
+    tb = AdjustToolbar()
+    tb._brightness.set_value(150)
+    assert abs(tb.current_adjustments().brightness - 1.5) < 1e-6
+
+
+def test_toolbar_sensitivity_scales_to_unit(qapp) -> None:
+    tb = AdjustToolbar()
+    tb._sensitivity.set_value(50)
+    assert abs(tb.current_adjustments().det_sensitivity - 0.5) < 1e-6
+
+
+def test_toolbar_crop_button_emits_crop_mode_toggle(qapp) -> None:
+    tb = AdjustToolbar()
+    seen: list[bool] = []
+    tb.crop_mode_toggled.connect(seen.append)
+    tb._crop_btn.setChecked(True)
+    assert seen == [True]
+
+
+def test_toolbar_run_and_reset_emit(qapp) -> None:
+    tb = AdjustToolbar()
+    runs: list[int] = []
+    resets: list[int] = []
+    tb.run_ocr_requested.connect(lambda: runs.append(1))
+    tb.reset_requested.connect(lambda: resets.append(1))
+    tb._run_btn.click()
+    tb._reset_btn.click()
+    assert runs == [1]
+    assert resets == [1]
+
+
+def test_toolbar_auto_pill_emits_auto_ocr_toggled(qapp) -> None:
+    tb = AdjustToolbar()
+    toggles: list[bool] = []
+    tb.auto_ocr_toggled.connect(toggles.append)
+    tb._auto_btn.setChecked(True)
+    tb._auto_btn.setChecked(False)
+    assert toggles == [True, False]
+
+
+def test_toolbar_auto_does_not_affect_adjustments(qapp) -> None:
+    """Auto is a UI mode, not a field on Adjustments — toggling it must
+    not flip is_identity()."""
+    tb = AdjustToolbar()
+    tb._auto_btn.setChecked(True)
+    assert tb.current_adjustments().is_identity()
+
+
+def test_toolbar_contrast_and_sharpen_scale_to_factor(qapp) -> None:
+    tb = AdjustToolbar()
+    tb._contrast.set_value(60)
+    tb._sharpen.set_value(120)
+    adj = tb.current_adjustments()
+    assert abs(adj.contrast - 0.6) < 1e-6
+    assert abs(adj.sharpen - 1.2) < 1e-6
+
+
+def test_toolbar_upscale_and_smart_fix_pills_emit(qapp) -> None:
+    tb = AdjustToolbar()
+    seen: list[Adjustments] = []
+    tb.adjustments_changed.connect(seen.append)
+    tb._upscale.setChecked(True)
+    tb._smart_fix.setChecked(True)
+    assert seen[-1].upscale is True
+    assert seen[-1].smart_fix is True
