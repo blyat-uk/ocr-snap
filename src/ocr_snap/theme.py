@@ -90,6 +90,62 @@ class Icons:
     def merge(cls, color: str | None = None) -> QIcon:
         return cls._i("ph.git-merge", color)
 
+    @classmethod
+    def rotate(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.arrow-clockwise", color)
+
+    @classmethod
+    def brightness(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.sun", color)
+
+    @classmethod
+    def contrast(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.circle-half", color)
+
+    @classmethod
+    def sharpen(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.aperture", color)
+
+    @classmethod
+    def grayscale(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.palette", color)
+
+    @classmethod
+    def invert(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.swap", color)
+
+    @classmethod
+    def binarize(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.square-half", color)
+
+    @classmethod
+    def upscale(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.magnifying-glass-plus", color)
+
+    @classmethod
+    def smart_fix(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.magic-wand", color)
+
+    @classmethod
+    def sensitivity(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.crosshair", color)
+
+    @classmethod
+    def crop(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.crop", color)
+
+    @classmethod
+    def reset(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.arrow-counter-clockwise", color)
+
+    @classmethod
+    def run_ocr(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.frame-corners", color)
+
+    @classmethod
+    def auto_ocr(cls, color: str | None = None) -> QIcon:
+        return cls._i("ph.lightning", color)
+
 
 # --- IconButton ---
 
