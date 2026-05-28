@@ -31,7 +31,7 @@ from ocr_snap.ocr_engine import OCREngine, OCRRunOptions
 from ocr_snap.perf_settings import AppSettings
 from ocr_snap.adjust_toolbar import AdjustToolbar
 from ocr_snap.image_ops import (
-    crop_to_original_normalized,
+    bake_geometry,
     pil_from_pixmap,
     pixmap_from_pil,
     render_display,
@@ -529,25 +529,30 @@ class MainWindow(QMainWindow):
         self._canvas.set_working_pixmap(state.pixmap)
 
     def _on_crop_selected(self, rect: QRectF) -> None:
-        # The canvas emits rect normalized against the WORKING pixmap, which
-        # has the current adjustments (crop + rotation) baked in. Adjustments
-        # .crop is defined in ORIGINAL-image space, so back-transform here.
+        # The canvas emits ``rect`` normalized against the WORKING pixmap.
+        # Bake any prior geometry (rotation + previous crop) into the working
+        # source so the drawn rect can be stored verbatim as ``Adjustments
+        # .crop``. The back-transform path (axis-aligned bbox of an inverse-
+        # rotated quad) was lossy for non-90° rotations and produced a crop
+        # that included a slightly-larger region than the user drew.
         if self._active_id is None:
             return
         state = self._images.get(self._active_id)
         if state is None:
             return
+
+        src = self._preview_source(state)
+        baked, new_adj = bake_geometry(src, state.adjustments)
+        if baked is not src:
+            state.original_pixmap = pixmap_from_pil(baked)
+            self._preview_sources[state.image_id] = baked
+            state.adjustments = new_adj
+            self._adjust_toolbar.set_adjustments(new_adj)  # silent
+
         working_rect = (rect.x(), rect.y(), rect.width(), rect.height())
-        crop = crop_to_original_normalized(
-            working_rect,
-            working_size=(state.pixmap.width(), state.pixmap.height()),
-            adj=state.adjustments,
-            original_size=(
-                state.original_pixmap.width(),
-                state.original_pixmap.height(),
-            ),
-        )
-        self._adjust_toolbar.set_crop(crop)  # emits adjustments_changed -> preview
+        # ``set_crop`` emits adjustments_changed (-> preview re-render) and
+        # adjustments_committed (-> auto-OCR debounce).
+        self._adjust_toolbar.set_crop(working_rect)
 
     def _on_run_ocr_requested(self) -> None:
         if self._active_id is None:
@@ -578,6 +583,10 @@ class MainWindow(QMainWindow):
         if state is None:
             return
         self._preview_timer.stop()  # cancel any pending preview tick
+        # Roll the working source back to the pristine image — undoing any
+        # geometry that was baked in by ``_on_crop_selected``.
+        state.original_pixmap = state.pristine_pixmap
+        self._preview_sources.pop(state.image_id, None)
         state.adjustments = Adjustments()
         state.pixmap = state.original_pixmap
         self._adjust_toolbar.set_adjustments(state.adjustments)

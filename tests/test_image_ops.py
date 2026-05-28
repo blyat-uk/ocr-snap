@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 from PIL import Image
 from PyQt6.QtGui import QColor, QImage, QPixmap
@@ -156,48 +158,77 @@ def test_rotate_after_crop_rotates_the_cropped_region() -> None:
     assert r > 150 and g < 50 and b < 50, f"center pixel {(r, g, b)} not red"
 
 
-# ── Back-transforming a crop rect to the original image's space ──────
+# ── Baking geometry into the working source ─────────────────────────
 
 
-def test_crop_to_original_normalized_identity_when_no_adjustments() -> None:
-    from ocr_snap.image_ops import crop_to_original_normalized
+def test_bake_geometry_identity_returns_same_source() -> None:
+    """No geometry → no-op; the caller can detect this via ``baked is source``."""
+    from ocr_snap.image_ops import bake_geometry
 
-    rect = (0.1, 0.2, 0.4, 0.5)
-    out = crop_to_original_normalized(
-        rect, working_size=(100, 80), adj=Adjustments(), original_size=(100, 80)
+    img = _solid_pil(40, 30, (10, 20, 30))
+    adj = Adjustments(brightness=1.5, sharpen=0.5)  # tone fields, no geometry
+    out, new_adj = bake_geometry(img, adj)
+    assert out is img
+    assert new_adj is adj
+
+
+def test_bake_geometry_strips_rotation_and_crop_only() -> None:
+    """Rotation + crop are baked into the source; tone/OCR fields pass through
+    unchanged so the parametric sliders keep working against the baked source."""
+    from ocr_snap.image_ops import bake_geometry
+
+    img = _solid_pil(100, 100, (50, 60, 70))
+    adj = Adjustments(
+        rotation=30.0,
+        crop=(0.1, 0.1, 0.5, 0.5),
+        brightness=1.3,
+        contrast=0.9,
+        grayscale=True,
+        sharpen=0.4,
+        upscale=True,
     )
-    for got, want in zip(out, rect):
-        assert abs(got - want) < 1e-6
+    _, new_adj = bake_geometry(img, adj)
+    assert new_adj.rotation == 0.0
+    assert new_adj.crop is None
+    assert new_adj.brightness == 1.3
+    assert new_adj.contrast == 0.9
+    assert new_adj.grayscale is True
+    assert new_adj.sharpen == 0.4
+    assert new_adj.upscale is True
 
 
-def test_crop_to_original_normalized_inverts_rotation() -> None:
-    """A rect on the LEFT half of a CW-90-rotated 100x100 view corresponds to
-    the BOTTOM half of the original (after CW 90, what was bottom is now left)."""
-    from ocr_snap.image_ops import crop_to_original_normalized
+def test_bake_geometry_matches_geometry_only_render() -> None:
+    """The baked PIL must equal a render with the geometry fields applied and
+    all tone fields at identity — that's what makes subsequent tone sliders
+    still produce the same final pixels as the un-baked pipeline."""
+    from ocr_snap.image_ops import bake_geometry
 
-    out = crop_to_original_normalized(
-        (0.0, 0.0, 0.5, 1.0),
-        working_size=(100, 100),
-        adj=Adjustments(rotation=90.0),
-        original_size=(100, 100),
+    img = _solid_pil(80, 60, (200, 100, 50))
+    adj = Adjustments(rotation=15.0, crop=(0.1, 0.2, 0.6, 0.6), brightness=1.5)
+    baked, _ = bake_geometry(img, adj)
+    expected = render_display(
+        img, Adjustments(rotation=15.0, crop=(0.1, 0.2, 0.6, 0.6))
     )
-    assert abs(out[0] - 0.0) < 1e-6
-    assert abs(out[1] - 0.5) < 1e-6
-    assert abs(out[2] - 1.0) < 1e-6
-    assert abs(out[3] - 0.5) < 1e-6
+    assert baked.size == expected.size
+    assert np.array_equal(array_from_pil(baked), array_from_pil(expected))
 
 
-def test_crop_to_original_normalized_composes_with_prior_crop() -> None:
-    """Drawing a full rect on a previously-cropped working pixmap (no rotation)
-    must round-trip back to the prior crop's original-space rect."""
-    from ocr_snap.image_ops import crop_to_original_normalized
+def test_bake_then_crop_is_wysiwyg_under_rotation() -> None:
+    """Regression: rotate → draw axis-aligned rect on the rotated canvas →
+    the final image equals a direct crop of the rotated canvas. The old
+    behavior stored the AABB of the inverse-rotated quad in pre-rotation
+    space and re-expanded on rotation, producing a strictly larger result."""
+    from ocr_snap.image_ops import _apply_crop, bake_geometry
 
-    prior = (0.5, 0.0, 0.5, 1.0)  # right half of a 100x100 original -> 50x100
-    out = crop_to_original_normalized(
-        (0.0, 0.0, 1.0, 1.0),
-        working_size=(50, 100),
-        adj=Adjustments(crop=prior),
-        original_size=(100, 100),
-    )
-    for got, want in zip(out, prior):
-        assert abs(got - want) < 1e-6
+    arr_in = np.zeros((200, 200, 3), dtype=np.uint8)
+    arr_in[:100, :100] = (200, 0, 0)  # red top-left quarter
+    arr_in[100:, 100:] = (0, 200, 0)  # green bottom-right quarter
+    img = Image.fromarray(arr_in, mode="RGB")
+    baked, new_adj = bake_geometry(img, Adjustments(rotation=37.0))
+    user_rect = (0.2, 0.2, 0.4, 0.4)
+    final = render_display(baked, dataclasses.replace(new_adj, crop=user_rect))
+    direct = _apply_crop(baked, user_rect)
+    assert final.size == direct.size
+    assert np.array_equal(array_from_pil(final), array_from_pil(direct))
+
+
