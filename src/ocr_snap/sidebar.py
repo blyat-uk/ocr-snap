@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, pyqtSignal
+from PyQt6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QContextMenuEvent, QEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QScrollArea,
     QSlider,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -36,10 +37,14 @@ _SEPARATOR_STYLE = f"background: {Tokens.border}; border: none; max-height: 1px;
 
 
 class _TextZone(QWidget):
-    """A hover zone containing content labels and a copy button that appears on hover."""
+    """A hover zone containing content labels and copy/edit buttons that
+    appear on hover. Edit button is created when ``edit_callback`` is given."""
 
     def __init__(
-        self, copy_callback: Callable[[], None], parent: QWidget | None = None
+        self,
+        copy_callback: Callable[[], None],
+        edit_callback: Callable[[], None] | None = None,
+        parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self.setMouseTracking(True)
@@ -52,6 +57,13 @@ class _TextZone(QWidget):
         self._content_layout.setSpacing(2)
         layout.addLayout(self._content_layout, stretch=1)
 
+        self._edit_btn: IconButton | None = None
+        if edit_callback is not None:
+            self._edit_btn = IconButton(Icons.pencil(), tooltip="Edit", size=14)
+            self._edit_btn.clicked.connect(edit_callback)
+            self._edit_btn.hide()
+            layout.addWidget(self._edit_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+
         self._copy_btn = IconButton(Icons.copy(), tooltip="Copy", size=14)
         self._copy_btn.clicked.connect(copy_callback)
         self._copy_btn.hide()
@@ -60,16 +72,22 @@ class _TextZone(QWidget):
     def add_widget(self, widget: QWidget) -> None:
         self._content_layout.addWidget(widget)
 
-    def enterEvent(self, event: QEnterEvent | None) -> None:
+    def enterEvent(self, event):  # type: ignore[override, no-untyped-def]
+        if self._edit_btn is not None:
+            self._edit_btn.show()
         self._copy_btn.show()
         super().enterEvent(event)
 
-    def leaveEvent(self, event: QEnterEvent | None) -> None:  # type: ignore[override]
+    def leaveEvent(self, event):  # type: ignore[override, no-untyped-def]
+        if self._edit_btn is not None:
+            self._edit_btn.hide()
         self._copy_btn.hide()
         super().leaveEvent(event)
 
 
 class SidebarEntry(QFrame):
+    text_edited = pyqtSignal(int, str)
+
     def __init__(
         self,
         index: int,
@@ -128,7 +146,7 @@ class SidebarEntry(QFrame):
         zones_layout.setSpacing(4)
 
         # Original text zone
-        self._original_zone = _TextZone(self._copy_original)
+        self._original_zone = _TextZone(self._copy_original, self._begin_edit)
 
         text_label = QLabel(text)
         text_label.setWordWrap(True)
@@ -137,6 +155,8 @@ class SidebarEntry(QFrame):
             f"background: transparent; border: none; min-height: 25px;"
         )
         self._original_zone.add_widget(text_label)
+        self._text_label = text_label
+        self._editor: QTextEdit | None = None
 
         zones_layout.addWidget(self._original_zone)
 
@@ -207,6 +227,76 @@ class SidebarEntry(QFrame):
         sel = self._selection_model.selected_indices
         if sel == frozenset({self._index}):
             self._scroll_area.ensureWidgetVisible(self)
+
+    def _begin_edit(self) -> None:
+        if self._editor is not None:
+            return
+        editor = QTextEdit(self._text)
+        editor.setStyleSheet(
+            f"QTextEdit {{ color: {Tokens.text_primary}; "
+            f"font-size: {Tokens.text_lg}px; "
+            f"background: {Tokens.bg_deepest}; "
+            f"border: 1px solid #d4a843; border-radius: 4px; "
+            f"padding: 2px 6px; }}"
+        )
+        editor.setAcceptRichText(False)
+        editor.setTabChangesFocus(True)
+        editor.installEventFilter(self)
+        editor.document().contentsChanged.connect(
+            lambda: self._resize_editor_to_content(editor)
+        )
+        self._editor = editor
+        self._text_label.hide()
+        self._original_zone.add_widget(editor)
+        editor.setFocus()
+        editor.moveCursor(editor.textCursor().MoveOperation.End)
+        self._resize_editor_to_content(editor)
+
+    def _resize_editor_to_content(self, editor: QTextEdit) -> None:
+        doc_h = int(editor.document().size().height())
+        editor.setFixedHeight(max(28, doc_h + 8))
+
+    def eventFilter(self, obj, event):  # type: ignore[override, no-untyped-def]
+        if obj is self._editor and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            mods = event.modifiers()
+            if key == Qt.Key.Key_Escape:
+                self._cancel_edit()
+                return True
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                if mods & Qt.KeyboardModifier.ShiftModifier:
+                    return False  # let the editor insert a newline
+                self._commit_edit()
+                return True
+        if obj is self._editor and event.type() == QEvent.Type.FocusOut:
+            if self._editor is not None:
+                self._commit_edit()
+            return False  # don't consume; allow normal focus-out processing
+        return super().eventFilter(obj, event)
+
+    def _commit_edit(self) -> None:
+        if self._editor is None:
+            return
+        new_text = self._editor.toPlainText().strip()
+        editor = self._editor
+        self._editor = None
+        editor.setParent(None)
+        editor.deleteLater()
+        self._text_label.show()
+        if not new_text or new_text == self._text:
+            return
+        self._text = new_text
+        self._text_label.setText(new_text)
+        self.text_edited.emit(self._index, new_text)
+
+    def _cancel_edit(self) -> None:
+        if self._editor is None:
+            return
+        editor = self._editor
+        self._editor = None
+        editor.setParent(None)
+        editor.deleteLater()
+        self._text_label.show()
 
     def enterEvent(self, event: QEnterEvent | None) -> None:
         self._selection_model.hovered_index = self._index
