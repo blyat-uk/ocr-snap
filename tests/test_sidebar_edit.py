@@ -81,3 +81,30 @@ def test_commit_empty_string_is_a_no_op(qapp) -> None:
     entry._commit_edit()
     assert fired == []
     assert entry._text_label.text() == "hello"
+
+
+def test_clear_translation_hides_translation_zone(qapp) -> None:
+    entry = _make_entry(qapp, "hello")
+    entry.set_translation("hola")
+    # ``set_translation`` calls show() on these widgets — isHidden() is False
+    # after show() regardless of whether the parent is mounted.
+    assert entry._translation_zone.isHidden() is False
+    assert entry._separator.isHidden() is False
+    entry.clear_translation()
+    assert entry._translation_zone.isHidden() is True
+    assert entry._separator.isHidden() is True
+
+
+def test_set_edited_replaces_confidence_with_edited_badge(qapp) -> None:
+    entry = _make_entry(qapp, "hello", confidence=0.99)
+    entry.set_edited(True)
+    assert entry._conf_label.text() == "edited"
+    assert "was 99%" in (entry._conf_label.toolTip() or "")
+
+
+def test_set_edited_false_restores_confidence(qapp) -> None:
+    entry = _make_entry(qapp, "hello", confidence=0.42)
+    entry.set_edited(True)
+    entry.set_edited(False)
+    assert entry._conf_label.text() == "42%"
+    assert entry._conf_label.toolTip() in ("", None)

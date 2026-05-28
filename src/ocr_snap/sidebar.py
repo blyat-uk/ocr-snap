@@ -131,13 +131,13 @@ class SidebarEntry(QFrame):
         )
         badge_layout.addWidget(idx_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        conf_label = QLabel(f"{confidence:.0%}")
-        conf_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        conf_label.setStyleSheet(
+        self._conf_label = QLabel(f"{confidence:.0%}")
+        self._conf_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._conf_label.setStyleSheet(
             f"color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px; "
             f"background: transparent; border: none;"
         )
-        badge_layout.addWidget(conf_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        badge_layout.addWidget(self._conf_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         layout.addLayout(badge_layout)
 
@@ -191,6 +191,28 @@ class SidebarEntry(QFrame):
         self._translation_label.setText(text)
         self._separator.show()
         self._translation_zone.show()
+
+    def clear_translation(self) -> None:
+        self._translated_text = None
+        self._translation_label.clear()
+        self._separator.hide()
+        self._translation_zone.hide()
+
+    def set_edited(self, edited: bool) -> None:
+        if edited:
+            self._conf_label.setText("edited")
+            self._conf_label.setStyleSheet(
+                f"color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px; "
+                f"background: transparent; border: none; font-style: italic;"
+            )
+            self._conf_label.setToolTip(f"Manually edited (was {self._confidence:.0%})")
+        else:
+            self._conf_label.setText(f"{self._confidence:.0%}")
+            self._conf_label.setStyleSheet(
+                f"color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px; "
+                f"background: transparent; border: none;"
+            )
+            self._conf_label.setToolTip("")
 
     def _copy_original(self) -> None:
         clipboard = QApplication.clipboard()
