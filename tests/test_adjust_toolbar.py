@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from ocr_snap.adjust_toolbar import _Pill, _TogglePill
+from PyQt6.QtCore import Qt
+
+from ocr_snap.adjust_toolbar import _Pill, _SliderPopover, _TogglePill
 from ocr_snap.theme import Icons
 
 
@@ -51,3 +53,57 @@ def test_toggle_pill_emits_toggled_signal(qapp) -> None:
     p.setChecked(True)
     p.setChecked(False)
     assert seen == [True, False]
+
+
+def test_slider_popover_has_popup_window_flag(qapp) -> None:
+    pop = _SliderPopover(
+        title="Rotate", min_val=-180, max_val=180,
+        default=0, current=0, value_text=lambda v: f"{v}°",
+    )
+    flags = pop.windowFlags()
+    assert flags & Qt.WindowType.Popup
+
+
+def test_slider_popover_emits_value_changed_on_drag(qapp) -> None:
+    pop = _SliderPopover(
+        title="Rotate", min_val=-180, max_val=180,
+        default=0, current=0, value_text=lambda v: f"{v}°",
+    )
+    seen: list[int] = []
+    pop.value_changed.connect(seen.append)
+    pop._slider.setValue(45)
+    pop._slider.setValue(-30)
+    assert seen == [45, -30]
+
+
+def test_slider_popover_reset_sets_default(qapp) -> None:
+    pop = _SliderPopover(
+        title="Rotate", min_val=-180, max_val=180,
+        default=0, current=45, value_text=lambda v: f"{v}°",
+    )
+    assert pop._slider.value() == 45
+    pop._reset_to_default()
+    assert pop._slider.value() == 0
+
+
+def test_slider_popover_value_label_updates_on_drag(qapp) -> None:
+    pop = _SliderPopover(
+        title="Brightness", min_val=20, max_val=200,
+        default=100, current=100, value_text=lambda v: f"{v - 100:+d}%",
+    )
+    pop._slider.setValue(150)
+    assert pop._value_label.text() == "+50%"
+
+
+def test_slider_popover_reset_when_already_at_default_is_silent(qapp) -> None:
+    """QSlider.setValue is a no-op when already at the target, so resetting
+    from the default does not fire value_changed — document the contract."""
+    pop = _SliderPopover(
+        title="Rotate", min_val=-180, max_val=180,
+        default=0, current=0, value_text=lambda v: f"{v}°",
+    )
+    seen: list[int] = []
+    pop.value_changed.connect(seen.append)
+    pop._reset_to_default()
+    assert seen == []
+    assert pop._slider.value() == 0

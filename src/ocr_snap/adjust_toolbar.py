@@ -11,9 +11,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QPushButton, QWidget
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ocr_snap.theme import Tokens
 
@@ -113,3 +120,120 @@ class _TogglePill(_Pill):
         super().__init__(icon_factory, label, parent)
         self.setCheckable(True)
         self.toggled.connect(self.set_active)
+
+
+_POPOVER_STYLE = f"""
+QWidget#SliderPopover {{
+    background: {Tokens.bg_raised};
+    border: 1px solid {Tokens.border_strong};
+    border-radius: {Tokens.r_md}px;
+}}
+QLabel {{ background: transparent; border: none; }}
+QLabel#PopTitle {{ color: {Tokens.text_muted}; font-size: {Tokens.text_base}px; }}
+QLabel#PopReset {{ color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px; text-decoration: underline; }}
+QLabel#PopReset:hover {{ color: {_ON_TEXT}; }}
+QLabel#PopValue {{ color: {_ON_TEXT}; font-size: {Tokens.text_lg}px; font-weight: 700; }}
+QLabel#PopEndpoint {{ color: {Tokens.text_muted}; font-size: {Tokens.text_eyebrow}px; }}
+QSlider::groove:horizontal {{
+    background: {Tokens.border}; height: 4px; border-radius: 2px;
+}}
+QSlider::handle:horizontal {{
+    background: {_ON_BORDER}; width: 12px; height: 12px;
+    margin: -4px 0; border-radius: 6px;
+}}
+"""
+
+
+class _ResetLabel(QLabel):
+    """A QLabel that emits ``clicked`` on left-mouse release. Cheaper than a
+    QPushButton for an inline link and styles cleanly via the popover sheet."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event) -> None:  # type: ignore[override]
+        if event is not None and event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
+class _SliderPopover(QWidget):
+    """Floating popup containing a slider for a single adjustment value.
+
+    Constructed with the value's range, default, current value, and a
+    formatter that turns an int slider value into a display string. Emits
+    ``value_changed(int)`` on every slider tick. ``_reset_to_default``
+    snaps the slider back via ``QSlider.setValue``, which fires
+    ``value_changed`` only when the current value differs from the default
+    (Qt's setter is a no-op when the value is already correct).
+    """
+
+    value_changed = pyqtSignal(int)
+
+    def __init__(
+        self,
+        *,
+        title: str,
+        min_val: int,
+        max_val: int,
+        default: int,
+        current: int,
+        value_text: Callable[[int], str],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent, Qt.WindowType.Popup)
+        self.setObjectName("SliderPopover")
+        self._default = default
+        self._value_text = value_text
+        self.setStyleSheet(_POPOVER_STYLE)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 10, 12, 10)
+        root.setSpacing(6)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("PopTitle")
+        header.addWidget(title_lbl)
+        header.addStretch()
+        self._reset_lbl = _ResetLabel(f"Reset to {value_text(default)}")
+        self._reset_lbl.setObjectName("PopReset")
+        self._reset_lbl.clicked.connect(self._reset_to_default)
+        header.addWidget(self._reset_lbl)
+        root.addLayout(header)
+
+        self._value_label = QLabel(value_text(current))
+        self._value_label.setObjectName("PopValue")
+        self._value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self._value_label)
+
+        track_row = QHBoxLayout()
+        track_row.setSpacing(8)
+        lo_lbl = QLabel(value_text(min_val))
+        lo_lbl.setObjectName("PopEndpoint")
+        track_row.addWidget(lo_lbl)
+        self._slider = QSlider(Qt.Orientation.Horizontal)
+        self._slider.setRange(min_val, max_val)
+        self._slider.setValue(current)
+        self._slider.valueChanged.connect(self._on_slider_changed)
+        track_row.addWidget(self._slider, stretch=1)
+        hi_lbl = QLabel(value_text(max_val))
+        hi_lbl.setObjectName("PopEndpoint")
+        track_row.addWidget(hi_lbl)
+        root.addLayout(track_row)
+
+        self.setFixedWidth(240)
+
+    def _on_slider_changed(self, value: int) -> None:
+        self._value_label.setText(self._value_text(value))
+        self.value_changed.emit(value)
+
+    def _reset_to_default(self) -> None:
+        self._slider.setValue(self._default)
+
+    def value(self) -> int:
+        return self._slider.value()
