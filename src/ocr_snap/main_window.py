@@ -258,6 +258,7 @@ class MainWindow(QMainWindow):
                 self._canvas.set_processing(True)
 
         self._gallery.set_active(image_id)
+        self._sync_sidebar_active_state()
 
     # ── OCR results ─────────────────────────────────────────────────
 
@@ -310,6 +311,7 @@ class MainWindow(QMainWindow):
             )
         # Start translation for this image regardless of whether it's active
         self._start_translation(image_id)
+        self._sync_sidebar_active_state()
 
     def _reveal_next(self) -> None:
         if self._reveal_index >= self._reveal_count:
@@ -615,6 +617,18 @@ class MainWindow(QMainWindow):
             return "adjusted"
         return "none"
 
+    def _sync_sidebar_active_state(self) -> None:
+        state = (
+            self._images.get(self._active_id) if self._active_id is not None else None
+        )
+        has_image = state is not None
+        has_results = (
+            state is not None
+            and state.ocr_results is not None
+            and bool(state.ocr_results.items)
+        )
+        self._sidebar.set_active_state(has_image, has_results)
+
     def _on_auto_ocr_toggled(self, active: bool) -> None:
         self._auto_ocr_enabled = active
         if not active:
@@ -733,6 +747,7 @@ class MainWindow(QMainWindow):
             self._sidebar.hide()
             self._adjust_toolbar.hide()
             self._gallery.hide()
+            self._sync_sidebar_active_state()
             return
 
         if self._gallery.count < 2:
@@ -743,6 +758,7 @@ class MainWindow(QMainWindow):
             new_idx = min(idx, len(self._image_order) - 1)
             self._active_id = None  # prevent saving view state for removed image
             self._switch_to(self._image_order[new_idx])
+        self._sync_sidebar_active_state()
 
     # ── Errors ──────────────────────────────────────────────────────
 
@@ -753,6 +769,7 @@ class MainWindow(QMainWindow):
             state = self._images.get(self._active_id)
             if state is not None:
                 self._adjust_toolbar.set_indicator(self._indicator_state_for(state))
+        self._sync_sidebar_active_state()
 
     def _on_model_load_failed(self, message: str) -> None:
         self._status_bar.showMessage(

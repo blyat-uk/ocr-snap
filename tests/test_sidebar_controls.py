@@ -45,3 +45,24 @@ def test_set_overlay_checked_does_not_re_emit(qapp) -> None:
     sb.set_overlay_checked(True)
     assert received == []
     assert sb._overlay_pill.isChecked() is True
+
+
+def test_set_active_state_disables_both_pills_when_no_image(qapp) -> None:
+    sb = OCRSidebar()
+    sb.set_active_state(has_image=False, has_results=False)
+    assert sb._overlay_pill.isEnabled() is False
+    assert sb._copy_image_pill.isEnabled() is False
+
+
+def test_set_active_state_image_without_results_enables_only_copy(qapp) -> None:
+    sb = OCRSidebar()
+    sb.set_active_state(has_image=True, has_results=False)
+    assert sb._copy_image_pill.isEnabled() is True
+    assert sb._overlay_pill.isEnabled() is False
+
+
+def test_set_active_state_image_and_results_enables_both(qapp) -> None:
+    sb = OCRSidebar()
+    sb.set_active_state(has_image=True, has_results=True)
+    assert sb._copy_image_pill.isEnabled() is True
+    assert sb._overlay_pill.isEnabled() is True

@@ -498,6 +498,12 @@ class OCRSidebar(QWidget):
         self._overlay_pill.setChecked(checked)
         self._overlay_pill.blockSignals(False)
 
+    def set_active_state(self, has_image: bool, has_results: bool) -> None:
+        """Gate the action pills. Copy image needs an active image; Overlay
+        needs OCR results to be meaningful."""
+        self._copy_image_pill.setEnabled(has_image)
+        self._overlay_pill.setEnabled(has_image and has_results)
+
     def _on_slider_released(self) -> None:
         value = self._confidence_slider.value() / 100.0
         if value < self._ocr_threshold:
