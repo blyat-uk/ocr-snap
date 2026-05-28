@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from PyQt6.QtGui import QColor, QImage, QPixmap
 
-from ocr_snap.models import array_from_pixmap, array_from_qimage
+from ocr_snap.models import Adjustments, ImageState, array_from_pixmap, array_from_qimage
 
 
 def _solid_qimage(w: int, h: int, color: tuple[int, int, int]) -> QImage:
@@ -41,3 +41,31 @@ def test_array_from_pixmap_max_long_side_skip_when_below_cap(qapp) -> None:
     arr = array_from_pixmap(QPixmap.fromImage(img), max_long_side=400)
     # 100 <= 400 → no resize
     assert arr.shape == (60, 100, 3)
+
+
+def test_adjustments_default_is_identity() -> None:
+    assert Adjustments().is_identity() is True
+
+
+def test_adjustments_non_identity_cases() -> None:
+    assert not Adjustments(rotation=5.0).is_identity()
+    assert not Adjustments(crop=(0.1, 0.1, 0.5, 0.5)).is_identity()
+    assert not Adjustments(brightness=1.2).is_identity()
+    assert not Adjustments(contrast=0.8).is_identity()
+    assert not Adjustments(grayscale=True).is_identity()
+    assert not Adjustments(invert=True).is_identity()
+    assert not Adjustments(binarize=True).is_identity()
+    assert not Adjustments(sharpen=0.5).is_identity()
+    assert not Adjustments(upscale=True).is_identity()
+    assert not Adjustments(det_sensitivity=0.3).is_identity()
+    assert not Adjustments(smart_fix=True).is_identity()
+
+
+def test_imagestate_adjustment_fields(qapp) -> None:
+    img = QImage(10, 10, QImage.Format.Format_RGB888)
+    img.fill(QColor(0, 0, 0))
+    pixmap = QPixmap.fromImage(img)
+    state = ImageState("id", pixmap, None)
+    assert state.original_pixmap is pixmap
+    assert state.adjustments.is_identity()
+    assert state.results_snapshot is None

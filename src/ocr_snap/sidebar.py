@@ -283,6 +283,14 @@ class OCRSidebar(QWidget):
 
         layout.addLayout(header_layout)
 
+        self._adjusted_hint = QLabel("Adjusted — Run OCR to refresh")
+        self._adjusted_hint.setStyleSheet(
+            f"color: {Tokens.accent}; font-size: {Tokens.text_eyebrow}px; "
+            f"background: transparent; border: none; padding: 0 14px 4px 14px;"
+        )
+        self._adjusted_hint.hide()
+        layout.addWidget(self._adjusted_hint)
+
         # Confidence threshold slider
         slider_layout = QHBoxLayout()
         slider_layout.setContentsMargins(14, 0, 14, 6)
@@ -378,6 +386,17 @@ class OCRSidebar(QWidget):
 
         self._container_layout.addStretch()
         self._scroll_area.setWidget(self._container)
+
+    def insert_adjust_panel(self, panel: QWidget) -> None:
+        """Insert the Adjust panel just below the header/hint, above the
+        confidence slider."""
+        layout = self.layout()
+        assert layout is not None
+        # header_layout (0), adjusted_hint (1) -> insert at 2
+        layout.insertWidget(2, panel)
+
+    def set_adjusted_hint(self, visible: bool) -> None:
+        self._adjusted_hint.setVisible(visible)
 
     def clear(self) -> None:
         for entry in self._entries:

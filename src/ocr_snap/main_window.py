@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from PyQt6.QtCore import QSize, QTimer, Qt
+from PyQt6.QtCore import QRectF, QSize, QTimer, Qt
 from PyQt6.QtGui import (
     QCloseEvent,
     QKeyEvent,
@@ -20,12 +20,20 @@ from PyQt6.QtWidgets import (
 )
 
 import numpy as np
+from PIL import Image
 
 from ocr_snap.canvas import OCRCanvas
 from ocr_snap.gallery import GalleryPanel
-from ocr_snap.models import ImageState, OCRResultItem, OCRResults, array_from_pixmap
-from ocr_snap.ocr_engine import OCREngine
+from ocr_snap.models import Adjustments, ImageState, OCRResultItem, OCRResults, array_from_pixmap
+from ocr_snap.ocr_engine import OCREngine, OCRRunOptions
 from ocr_snap.perf_settings import AppSettings
+from ocr_snap.adjust_panel import AdjustPanel
+from ocr_snap.image_ops import (
+    pil_from_pixmap,
+    pixmap_from_pil,
+    render_display,
+    render_ocr_input,
+)
 from ocr_snap.settings_dialog import SettingsDialog
 from ocr_snap.sidebar import OCRSidebar
 from ocr_snap.theme import Icons, Tokens
@@ -92,6 +100,15 @@ class MainWindow(QMainWindow):
         self._sidebar.setMinimumWidth(200)
         self._sidebar.hide()
 
+        self._adjust_panel = AdjustPanel()
+        self._sidebar.insert_adjust_panel(self._adjust_panel)
+
+        self._preview_sources: dict[str, Image.Image] = {}
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(80)
+        self._preview_timer.timeout.connect(self._render_preview)
+
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
         self._splitter.addWidget(self._gallery)
         self._splitter.addWidget(self._canvas)
@@ -149,6 +166,12 @@ class MainWindow(QMainWindow):
         self._sidebar.overlay_toggled.connect(self._on_overlay_toggled)
         self._gallery.image_selected.connect(self._on_gallery_select)
         self._gallery.image_removed.connect(self._on_gallery_remove)
+        self._adjust_panel.adjustments_changed.connect(self._on_adjustments_changed)
+        self._adjust_panel.run_ocr_requested.connect(self._on_run_ocr_requested)
+        self._adjust_panel.reset_requested.connect(self._on_adjust_reset)
+        self._adjust_panel.crop_mode_toggled.connect(self._canvas.set_crop_mode)
+        self._canvas.crop_mode_changed.connect(self._adjust_panel.set_crop_active)
+        self._canvas.crop_selected.connect(self._on_crop_selected)
 
     # ── Image loaded ────────────────────────────────────────────────
 
@@ -183,6 +206,8 @@ class MainWindow(QMainWindow):
 
         # Load incoming image
         self._canvas.load_image_state(state)
+        self._adjust_panel.set_adjustments(state.adjustments)
+        self._sidebar.set_adjusted_hint(not state.adjustments.is_identity())
 
         if state.ocr_results is not None:
             self._sidebar.set_results(
@@ -302,7 +327,13 @@ class MainWindow(QMainWindow):
         state.ocr_running = True
         self._canvas.set_processing(True)
         self._gallery.set_processing(self._active_id, True)
-        self._ocr_engine.run(self._active_id, state.array, min_confidence=threshold)
+        # state.array (rebuilt from the working pixmap) already reflects any
+        # image adjustments; keep the engine options adjustments-aware too.
+        self._ocr_engine.run(
+            self._active_id,
+            state.array,
+            OCRRunOptions.from_adjustments(state.adjustments, threshold),
+        )
         self._status_bar.showMessage("Re-running OCR with lower threshold...")
 
     # ── Merge ───────────────────────────────────────────────────────
@@ -426,6 +457,95 @@ class MainWindow(QMainWindow):
             state.overlay_enabled = checked
         self._canvas.set_overlay_visible(checked)
 
+    # ── Image adjustments ───────────────────────────────────────────
+
+    def _preview_source(self, state: ImageState) -> Image.Image:
+        src = self._preview_sources.get(state.image_id)
+        if src is None:
+            src = pil_from_pixmap(state.original_pixmap)
+            self._preview_sources[state.image_id] = src
+        return src
+
+    def _on_adjustments_changed(self, adj: Adjustments) -> None:
+        if self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is None:
+            return
+        if (
+            not adj.is_identity()
+            and state.results_snapshot is None
+            and state.ocr_results is not None
+        ):
+            state.results_snapshot = state.ocr_results
+        state.adjustments = adj
+        # Existing boxes no longer match the adjusted image; hide them. (A
+        # slider round-trip back to exact identity leaves them hidden until
+        # the user re-runs OCR — adjusting invalidates the prior results.)
+        if not adj.is_identity():
+            self._canvas.clear_results()
+        self._sidebar.set_adjusted_hint(not adj.is_identity())
+        self._preview_timer.start()
+
+    def _render_preview(self) -> None:
+        if self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is None:
+            return
+        img = render_display(self._preview_source(state), state.adjustments)
+        state.pixmap = pixmap_from_pil(img)
+        self._canvas.set_working_pixmap(state.pixmap)
+
+    def _on_crop_selected(self, rect: QRectF) -> None:
+        crop = (rect.x(), rect.y(), rect.width(), rect.height())
+        self._adjust_panel.set_crop(crop)  # emits adjustments_changed -> preview
+
+    def _on_run_ocr_requested(self) -> None:
+        if self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is None:
+            return
+        self._preview_timer.stop()  # no stale preview tick after we commit
+        src = self._preview_source(state)
+        ocr_array = render_ocr_input(
+            src, state.adjustments, self._ocr_engine.effective_long_side
+        )
+        state.pixmap = pixmap_from_pil(render_display(src, state.adjustments))
+        self._canvas.set_working_pixmap(state.pixmap)
+        options = OCRRunOptions.from_adjustments(state.adjustments, state.ocr_threshold)
+        state.ocr_running = True
+        self._canvas.set_processing(True)
+        self._gallery.set_processing(self._active_id, True)
+        self._ocr_engine.run(self._active_id, ocr_array, options)
+        self._status_bar.showMessage("Running OCR on adjusted image...")
+
+    def _on_adjust_reset(self) -> None:
+        if self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is None:
+            return
+        self._preview_timer.stop()  # cancel any pending preview tick
+        state.adjustments = Adjustments()
+        state.pixmap = state.original_pixmap
+        self._adjust_panel.set_adjustments(state.adjustments)
+        self._sidebar.set_adjusted_hint(False)
+        self._canvas.set_crop_mode(False)
+        self._canvas.set_working_pixmap(state.original_pixmap)
+        snapshot = state.results_snapshot
+        state.results_snapshot = None
+        if snapshot is not None:
+            state.ocr_results = snapshot
+            state.selection_model.clear()
+            self._canvas.set_ocr_results(snapshot, state.selection_model, visible=True)
+            self._sidebar.set_results(snapshot, state.selection_model, visible=True)
+            self._canvas.set_overlay_visible(state.overlay_enabled)
+        else:
+            self._canvas.clear_results()
+        self._status_bar.showMessage("Reverted to original image.", 5000)
+
     # ── Settings ────────────────────────────────────────────────────
 
     def _on_settings_requested(self) -> None:
@@ -506,6 +626,7 @@ class MainWindow(QMainWindow):
         if state is None:
             return
 
+        self._preview_sources.pop(image_id, None)
         idx = self._image_order.index(image_id)
         self._image_order.remove(image_id)
         self._gallery.remove_image(image_id)

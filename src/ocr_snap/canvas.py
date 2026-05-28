@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PyQt6.QtCore import QEvent, QRectF, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QPointF, QRectF, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QBrush,
     QColor,
@@ -21,6 +21,7 @@ from PyQt6.QtGui import (
     QKeyEvent,
     QKeySequence,
     QLinearGradient,
+    QMouseEvent,
     QPainter,
     QPainterPath,
     QPen,
@@ -263,6 +264,8 @@ class OCRCanvas(QGraphicsView):
     image_loaded = pyqtSignal(np.ndarray, QPixmap)
     merge_requested = pyqtSignal(list)
     delete_requested = pyqtSignal()
+    crop_selected = pyqtSignal(QRectF)  # normalized (x, y, w, h) of the working pixmap
+    crop_mode_changed = pyqtSignal(bool)  # crop mode entered/exited (incl. auto-exit)
 
     def __init__(self, parent: QGraphicsView | None = None):
         super().__init__(parent)
@@ -285,6 +288,11 @@ class OCRCanvas(QGraphicsView):
         self._ocr_items: list[QGraphicsItem] = []
         self._placeholder: QGraphicsTextItem | None = None
         self._selection_model: SelectionModel | None = None
+
+        # Crop mode state
+        self._crop_mode = False
+        self._crop_origin: QPointF | None = None
+        self._crop_rect_item: QGraphicsRectItem | None = None
 
         # Reveal animation state
         self._item_groups: list[list[QGraphicsItem]] = []
@@ -523,14 +531,7 @@ class OCRCanvas(QGraphicsView):
         self._remove_placeholder()
         self._stop_processing()
 
-        # Clear existing scene items
-        for gfx_item in self._ocr_items:
-            self._scene.removeItem(gfx_item)
-        self._ocr_items.clear()
-        self._clear_overlay_items()
-        self._item_groups.clear()
-        self._fading_groups.clear()
-        self._fade_timer.stop()
+        self.clear_results()
 
         if self._pixmap_item is not None:
             self._scene.removeItem(self._pixmap_item)
@@ -549,6 +550,92 @@ class OCRCanvas(QGraphicsView):
         if state.ocr_results is not None:
             self.set_ocr_results(state.ocr_results, state.selection_model, visible=True)
 
+    def set_working_pixmap(self, pixmap: QPixmap) -> None:
+        """Swap the displayed image (live preview) without emitting
+        ``image_loaded``. Preserves the current fit/zoom flag (fits if no
+        image has been loaded yet).
+        """
+        self._remove_placeholder()
+        if self._pixmap_item is not None:
+            self._scene.removeItem(self._pixmap_item)
+        item = self._scene.addPixmap(pixmap)
+        assert item is not None
+        item.setZValue(0)
+        self._pixmap_item = item
+        self.setSceneRect(QRectF(pixmap.rect().toRectF()))
+        if self._fit_to_view:
+            self.fitInView(item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def clear_results(self) -> None:
+        """Remove all OCR bbox + overlay items (e.g. when results go stale)."""
+        for gfx_item in self._ocr_items:
+            self._scene.removeItem(gfx_item)
+        self._ocr_items.clear()
+        self._clear_overlay_items()
+        self._item_groups.clear()
+        self._fading_groups.clear()
+        self._fade_timer.stop()
+
+    # ── Crop mode ────────────────────────────────────────────────────
+
+    def set_crop_mode(self, enabled: bool) -> None:
+        self._crop_mode = enabled
+        if enabled:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            viewport = self.viewport()
+            if viewport is not None:
+                viewport.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            viewport = self.viewport()
+            if viewport is not None:
+                viewport.unsetCursor()
+            self._remove_crop_rect()
+            self._crop_origin = None
+        self.crop_mode_changed.emit(enabled)
+
+    def _remove_crop_rect(self) -> None:
+        if self._crop_rect_item is not None:
+            self._scene.removeItem(self._crop_rect_item)
+            self._crop_rect_item = None
+
+    def _update_crop_rect(self, origin: QPointF, current: QPointF) -> None:
+        rect = QRectF(origin, current).normalized()
+        if self._crop_rect_item is None:
+            item = QGraphicsRectItem(rect)
+            item.setPen(QPen(QColor(Tokens.accent), 0, Qt.PenStyle.DashLine))
+            fill = QColor(Tokens.accent)
+            fill.setAlpha(40)
+            item.setBrush(QBrush(fill))
+            item.setZValue(60)
+            self._scene.addItem(item)
+            self._crop_rect_item = item
+        else:
+            self._crop_rect_item.setRect(rect)
+
+    def _finish_crop(self, origin: QPointF, end: QPointF) -> None:
+        self._remove_crop_rect()
+        if self._pixmap_item is None:
+            self.set_crop_mode(False)
+            return
+        br = self._pixmap_item.boundingRect()
+        w = br.width()
+        h = br.height()
+        if w <= 0 or h <= 0:
+            self.set_crop_mode(False)
+            return
+        x1 = max(0.0, min(w, min(origin.x(), end.x())))
+        x2 = max(0.0, min(w, max(origin.x(), end.x())))
+        y1 = max(0.0, min(h, min(origin.y(), end.y())))
+        y2 = max(0.0, min(h, max(origin.y(), end.y())))
+        nx, ny = x1 / w, y1 / h
+        nw, nh = (x2 - x1) / w, (y2 - y1) / h
+        if nw < 0.01 or nh < 0.01:
+            self.set_crop_mode(False)
+            return
+        self.crop_selected.emit(QRectF(nx, ny, nw, nh))
+        self.set_crop_mode(False)
+
     # ── OCR results ─────────────────────────────────────────────────
 
     def set_ocr_results(
@@ -558,13 +645,7 @@ class OCRCanvas(QGraphicsView):
         *,
         visible: bool = False,
     ) -> None:
-        for gfx_item in self._ocr_items:
-            self._scene.removeItem(gfx_item)
-        self._ocr_items.clear()
-        self._clear_overlay_items()
-        self._item_groups.clear()
-        self._fading_groups.clear()
-        self._fade_timer.stop()
+        self.clear_results()
         self._selection_model = selection_model
 
         if not results.items:
@@ -707,10 +788,7 @@ class OCRCanvas(QGraphicsView):
 
         if self._pixmap_item:
             self._scene.removeItem(self._pixmap_item)
-        for gfx_item in self._ocr_items:
-            self._scene.removeItem(gfx_item)
-        self._ocr_items.clear()
-        self._clear_overlay_items()
+        self.clear_results()
 
         pixmap_item = self._scene.addPixmap(pixmap)
         assert pixmap_item is not None
@@ -728,6 +806,30 @@ class OCRCanvas(QGraphicsView):
             self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
     # ── Input events ────────────────────────────────────────────────
+
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:  # type: ignore[override]
+        if (
+            self._crop_mode
+            and event is not None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            self._crop_origin = self.mapToScene(event.pos())
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent | None) -> None:  # type: ignore[override]
+        if self._crop_mode and self._crop_origin is not None and event is not None:
+            self._update_crop_rect(self._crop_origin, self.mapToScene(event.pos()))
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:  # type: ignore[override]
+        if self._crop_mode and self._crop_origin is not None and event is not None:
+            origin = self._crop_origin
+            self._crop_origin = None
+            self._finish_crop(origin, self.mapToScene(event.pos()))
+            return
+        super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         if event is not None and event.matches(QKeySequence.StandardKey.Paste):
