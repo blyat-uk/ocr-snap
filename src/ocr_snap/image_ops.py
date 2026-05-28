@@ -4,11 +4,15 @@ No Qt-widget or app-state dependencies. Renders both the on-screen
 preview (``render_display``) and the OCR-input array (``render_ocr_input``)
 from a pristine original image plus an ``Adjustments`` value object.
 
-The pixel pipeline order is: rotate -> crop -> grayscale -> brightness ->
-contrast -> invert -> binarize (Otsu) -> sharpen.
+The pixel pipeline order is: crop -> rotate -> grayscale -> brightness ->
+contrast -> invert -> binarize (Otsu) -> sharpen. Crop runs before rotate
+so a rotation applied after a crop expands the viewport around the cropped
+piece (otherwise the cropped image would be clipped).
 """
 
 from __future__ import annotations
+
+import math
 
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
@@ -45,14 +49,17 @@ def pixmap_from_pil(img: Image.Image) -> QPixmap:
 
 
 def _apply_geometry(img: Image.Image, adj: Adjustments) -> Image.Image:
+    # Crop FIRST, then rotate (with expand). This way rotation expands around
+    # the cropped piece; the reverse order would clip a previously-cropped
+    # image when the user later rotates it.
+    if adj.crop is not None:
+        img = _apply_crop(img, adj.crop)
     if adj.rotation != 0.0:
         # PIL rotates counter-clockwise for positive angles; negate so that
         # a positive Adjustments.rotation is clockwise.
         img = img.rotate(
             -adj.rotation, expand=True, resample=Image.BICUBIC, fillcolor=_FILL
         )
-    if adj.crop is not None:
-        img = _apply_crop(img, adj.crop)
     return img
 
 
@@ -158,3 +165,77 @@ def render_ocr_input(
     img = _pipeline(original, adj)
     img = _scale_long_side(img, effective_long_side, allow_upscale=adj.upscale)
     return array_from_pil(img)
+
+
+def crop_to_original_normalized(
+    rect_in_working_normalized: tuple[float, float, float, float],
+    working_size: tuple[int, int],
+    adj: Adjustments,
+    original_size: tuple[int, int],
+) -> tuple[float, float, float, float]:
+    """Map a crop rect drawn on the WORKING (displayed) pixmap to normalized
+    coordinates on the ORIGINAL pixmap.
+
+    The working pixmap is produced by the pixel pipeline (``crop`` then
+    ``rotate``). To recover original-space coords from a working-space point
+    we invert the rotation first (working → cropped-original) and then the
+    prior crop (cropped-original → original). The result is the axis-aligned
+    bounding box of the user's drawn rect in original space, clamped to the
+    image bounds. Identity when ``adj`` has no rotation and no prior crop.
+    """
+    W_orig, H_orig = original_size
+    if W_orig <= 0 or H_orig <= 0:
+        return (0.0, 0.0, 0.0, 0.0)
+    W_work, H_work = working_size
+
+    nx, ny, nw, nh = rect_in_working_normalized
+    x1, y1 = nx * W_work, ny * H_work
+    x2, y2 = x1 + nw * W_work, y1 + nh * H_work
+    corners = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+
+    # Cropped-original dims and offset (or full original when no prior crop).
+    if adj.crop is not None:
+        cx, cy, cw, ch = adj.crop
+        W_crop = cw * W_orig
+        H_crop = ch * H_orig
+        crop_offset_x = cx * W_orig
+        crop_offset_y = cy * H_orig
+    else:
+        W_crop = float(W_orig)
+        H_crop = float(H_orig)
+        crop_offset_x = 0.0
+        crop_offset_y = 0.0
+
+    # 1. Inverse-rotate (working → cropped-original space). The forward
+    #    rotation is visual CW by ``adj.rotation``; the inverse rotates each
+    #    working-space corner around the working center, then re-centers on
+    #    the cropped-original center.
+    if adj.rotation != 0.0:
+        theta = math.radians(adj.rotation)
+        cos_t, sin_t = math.cos(theta), math.sin(theta)
+        ow_x, ow_y = W_work / 2.0, H_work / 2.0
+        oc_x, oc_y = W_crop / 2.0, H_crop / 2.0
+        corners = [
+            (
+                (px - ow_x) * cos_t + (py - ow_y) * sin_t + oc_x,
+                -(px - ow_x) * sin_t + (py - ow_y) * cos_t + oc_y,
+            )
+            for px, py in corners
+        ]
+
+    # 2. Undo any prior crop offset (cropped-original → original).
+    corners = [(px + crop_offset_x, py + crop_offset_y) for px, py in corners]
+
+    # 3. Axis-aligned bounding box in original space, clamped to bounds.
+    xs = [p[0] for p in corners]
+    ys = [p[1] for p in corners]
+    x_min = max(0.0, min(float(W_orig), min(xs)))
+    x_max = max(0.0, min(float(W_orig), max(xs)))
+    y_min = max(0.0, min(float(H_orig), min(ys)))
+    y_max = max(0.0, min(float(H_orig), max(ys)))
+    return (
+        x_min / W_orig,
+        y_min / H_orig,
+        (x_max - x_min) / W_orig,
+        (y_max - y_min) / H_orig,
+    )

@@ -138,3 +138,66 @@ def test_crop_clamps_out_of_range() -> None:
     out = render_display(img, Adjustments(crop=(0.5, 0.5, 1.0, 1.0)))
     # right/bottom clamp to 100/80 -> 50 wide x 40 tall
     assert out.size == (50, 40)
+
+
+def test_rotate_after_crop_rotates_the_cropped_region() -> None:
+    """Pipeline order must be crop -> rotate so rotation acts on the cropped
+    piece. Bug repro: with the wrong order (rotate -> crop) the center of the
+    result is white fill (a corner of the rotated full original); with the
+    correct order it is the cropped content (red here)."""
+    arr_in = np.zeros((100, 100, 3), dtype=np.uint8)
+    arr_in[:50, :50] = (200, 0, 0)  # red top-left quarter
+    img = Image.fromarray(arr_in, mode="RGB")
+    out = render_display(img, Adjustments(crop=(0.0, 0.0, 0.5, 0.5), rotation=45.0))
+    out_arr = array_from_pil(out)
+    h, w, _ = out_arr.shape
+    cy, cx = h // 2, w // 2
+    r, g, b = out_arr[cy, cx]
+    assert r > 150 and g < 50 and b < 50, f"center pixel {(r, g, b)} not red"
+
+
+# ── Back-transforming a crop rect to the original image's space ──────
+
+
+def test_crop_to_original_normalized_identity_when_no_adjustments() -> None:
+    from ocr_snap.image_ops import crop_to_original_normalized
+
+    rect = (0.1, 0.2, 0.4, 0.5)
+    out = crop_to_original_normalized(
+        rect, working_size=(100, 80), adj=Adjustments(), original_size=(100, 80)
+    )
+    for got, want in zip(out, rect):
+        assert abs(got - want) < 1e-6
+
+
+def test_crop_to_original_normalized_inverts_rotation() -> None:
+    """A rect on the LEFT half of a CW-90-rotated 100x100 view corresponds to
+    the BOTTOM half of the original (after CW 90, what was bottom is now left)."""
+    from ocr_snap.image_ops import crop_to_original_normalized
+
+    out = crop_to_original_normalized(
+        (0.0, 0.0, 0.5, 1.0),
+        working_size=(100, 100),
+        adj=Adjustments(rotation=90.0),
+        original_size=(100, 100),
+    )
+    assert abs(out[0] - 0.0) < 1e-6
+    assert abs(out[1] - 0.5) < 1e-6
+    assert abs(out[2] - 1.0) < 1e-6
+    assert abs(out[3] - 0.5) < 1e-6
+
+
+def test_crop_to_original_normalized_composes_with_prior_crop() -> None:
+    """Drawing a full rect on a previously-cropped working pixmap (no rotation)
+    must round-trip back to the prior crop's original-space rect."""
+    from ocr_snap.image_ops import crop_to_original_normalized
+
+    prior = (0.5, 0.0, 0.5, 1.0)  # right half of a 100x100 original -> 50x100
+    out = crop_to_original_normalized(
+        (0.0, 0.0, 1.0, 1.0),
+        working_size=(50, 100),
+        adj=Adjustments(crop=prior),
+        original_size=(100, 100),
+    )
+    for got, want in zip(out, prior):
+        assert abs(got - want) < 1e-6
