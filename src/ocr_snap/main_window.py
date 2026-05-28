@@ -29,6 +29,7 @@ from ocr_snap.ocr_engine import OCREngine, OCRRunOptions
 from ocr_snap.perf_settings import AppSettings
 from ocr_snap.adjust_panel import AdjustPanel
 from ocr_snap.image_ops import (
+    crop_to_original_normalized,
     pil_from_pixmap,
     pixmap_from_pil,
     render_display,
@@ -498,7 +499,24 @@ class MainWindow(QMainWindow):
         self._canvas.set_working_pixmap(state.pixmap)
 
     def _on_crop_selected(self, rect: QRectF) -> None:
-        crop = (rect.x(), rect.y(), rect.width(), rect.height())
+        # The canvas emits rect normalized against the WORKING pixmap, which
+        # has the current adjustments (crop + rotation) baked in. Adjustments
+        # .crop is defined in ORIGINAL-image space, so back-transform here.
+        if self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is None:
+            return
+        working_rect = (rect.x(), rect.y(), rect.width(), rect.height())
+        crop = crop_to_original_normalized(
+            working_rect,
+            working_size=(state.pixmap.width(), state.pixmap.height()),
+            adj=state.adjustments,
+            original_size=(
+                state.original_pixmap.width(),
+                state.original_pixmap.height(),
+            ),
+        )
         self._adjust_panel.set_crop(crop)  # emits adjustments_changed -> preview
 
     def _on_run_ocr_requested(self) -> None:

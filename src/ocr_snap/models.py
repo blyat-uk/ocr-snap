@@ -55,7 +55,9 @@ class Adjustments:
     """User-controlled image adjustments for a single image.
 
     ``rotation`` is degrees, positive = clockwise. ``crop`` is
-    (x, y, w, h) normalized to 0..1 in the post-rotation image space.
+    (x, y, w, h) normalized to 0..1 in the ORIGINAL (pre-rotation, pre-prior-
+    crop) image space; the pipeline applies crop first, then rotation, so a
+    rotation set after a crop expands the viewport around the cropped piece.
     ``brightness``/``contrast`` are Pillow enhance factors (1.0 = no change).
     ``det_sensitivity`` is 0..1. The ``upscale``/``det_sensitivity``/
     ``smart_fix`` fields are OCR-time options (no pixel preview effect).
