@@ -99,6 +99,7 @@ class OCRResultItem:
     polygon: np.ndarray  # shape (4, 2)
     bbox: tuple[float, float, float, float]  # x1, y1, x2, y2
     translated_text: str | None = None
+    edited: bool = False
 
 
 @dataclass
@@ -112,7 +113,13 @@ class ImageState:
     def __init__(self, image_id: str, pixmap: QPixmap, array: np.ndarray | None) -> None:
         self.image_id = image_id
         self.pixmap = pixmap
+        # ``original_pixmap`` is the *current* working source for the pixel
+        # pipeline — it gets replaced when geometry (rotation + crop) is baked
+        # in on a crop commit. ``pristine_pixmap`` holds the truly-original
+        # image so Reset can revert all the way back. QPixmap is implicitly
+        # shared, so holding two references is cheap.
         self.original_pixmap = pixmap
+        self.pristine_pixmap = pixmap
         self.adjustments = Adjustments()
         self.results_snapshot: OCRResults | None = None
         self.array: np.ndarray | None = array
