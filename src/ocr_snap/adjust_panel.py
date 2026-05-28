@@ -74,28 +74,67 @@ class AdjustPanel(QWidget):
         grid.setVerticalSpacing(4)
         row = 0
 
-        self._rotation = self._add_slider(grid, row, "Rotate", -180, 180, 0)
+        self._rotation = self._add_slider(
+            grid, row, "Rotate", -180, 180, 0,
+            tooltip="Drag to rotate the image (degrees). Helps when text is "
+            "sideways or tilted.",
+        )
         row += 1
-        self._brightness = self._add_slider(grid, row, "Brightness", 20, 200, 100)
+        self._brightness = self._add_slider(
+            grid, row, "Brightness", 20, 200, 100,
+            tooltip="Brighten or darken the image. Useful for dim or "
+            "washed-out text.",
+        )
         row += 1
-        self._contrast = self._add_slider(grid, row, "Contrast", 20, 200, 100)
+        self._contrast = self._add_slider(
+            grid, row, "Contrast", 20, 200, 100,
+            tooltip="Increase or decrease contrast. Helps low-contrast text "
+            "stand out.",
+        )
         row += 1
-        self._sharpen = self._add_slider(grid, row, "Sharpen", 0, 200, 0)
+        self._sharpen = self._add_slider(
+            grid, row, "Sharpen", 0, 200, 0,
+            tooltip="Sharpen edges. Useful for slightly blurry text.",
+        )
         row += 1
-        self._sensitivity = self._add_slider(grid, row, "Det. sensitivity", 0, 100, 0)
+        self._sensitivity = self._add_slider(
+            grid, row, "Det. sensitivity", 0, 100, 0,
+            tooltip="How aggressively the OCR engine looks for text regions. "
+            "Increase to catch faint or tightly-packed text.",
+        )
         row += 1
         root.addLayout(grid)
 
         checks = QHBoxLayout()
-        self._grayscale = self._add_check(checks, "Grayscale")
-        self._invert = self._add_check(checks, "Invert")
-        self._binarize = self._add_check(checks, "Binarize")
+        self._grayscale = self._add_check(
+            checks, "Grayscale",
+            tooltip="Convert to grayscale before OCR. Helps when text is "
+            "colored on a colored background.",
+        )
+        self._invert = self._add_check(
+            checks, "Invert",
+            tooltip="Swap dark and light. Useful for light text on a dark "
+            "background.",
+        )
+        self._binarize = self._add_check(
+            checks, "Binarize",
+            tooltip="Force the image to pure black-and-white using automatic "
+            "thresholding. Helps low-contrast scans and screenshots.",
+        )
         checks.addStretch()
         root.addLayout(checks)
 
         checks2 = QHBoxLayout()
-        self._upscale = self._add_check(checks2, "Upscale")
-        self._smart_fix = self._add_check(checks2, "Smart fix")
+        self._upscale = self._add_check(
+            checks2, "Upscale",
+            tooltip="Scale small images up for OCR so tiny text keeps detail.",
+        )
+        self._smart_fix = self._add_check(
+            checks2, "Smart fix",
+            tooltip="Let the OCR engine auto-detect orientation, vertical "
+            "text, and warped pages. Slower but handles rotated or warped "
+            "scans automatically.",
+        )
         checks2.addStretch()
         root.addLayout(checks2)
 
@@ -103,10 +142,17 @@ class AdjustPanel(QWidget):
         self._crop_btn = QPushButton("Crop")
         self._crop_btn.setCheckable(True)
         self._crop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._crop_btn.setToolTip(
+            "Draw a rectangle on the image to crop. Helps focus OCR on just "
+            "the text region."
+        )
         self._crop_btn.toggled.connect(self.crop_mode_toggled.emit)
         crop_row.addWidget(self._crop_btn)
         self._clear_crop_btn = QPushButton("Clear crop")
         self._clear_crop_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clear_crop_btn.setToolTip(
+            "Remove the current crop and show the full image again."
+        )
         self._clear_crop_btn.clicked.connect(lambda: self.set_crop(None))
         crop_row.addWidget(self._clear_crop_btn)
         crop_row.addStretch()
@@ -115,10 +161,14 @@ class AdjustPanel(QWidget):
         actions = QHBoxLayout()
         self._run_btn = QPushButton("Run OCR")
         self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._run_btn.setToolTip("Re-run OCR on the adjusted image.")
         self._run_btn.clicked.connect(self.run_ocr_requested.emit)
         actions.addWidget(self._run_btn)
         self._reset_btn = QPushButton("Reset")
         self._reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._reset_btn.setToolTip(
+            "Restore the original image and clear all adjustments."
+        )
         self._reset_btn.clicked.connect(self.reset_requested.emit)
         actions.addWidget(self._reset_btn)
         actions.addStretch()
@@ -127,22 +177,38 @@ class AdjustPanel(QWidget):
     # ── construction helpers ─────────────────────────────────────────
 
     def _add_slider(
-        self, grid: QGridLayout, row: int, label: str, lo: int, hi: int, value: int
+        self,
+        grid: QGridLayout,
+        row: int,
+        label: str,
+        lo: int,
+        hi: int,
+        value: int,
+        *,
+        tooltip: str = "",
     ) -> QSlider:
         text = QLabel(label)
         text.setStyleSheet(_LABEL_STYLE)
+        if tooltip:
+            text.setToolTip(tooltip)
         grid.addWidget(text, row, 0)
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(lo, hi)
         slider.setValue(value)
         slider.setStyleSheet(_SLIDER_STYLE)
+        if tooltip:
+            slider.setToolTip(tooltip)
         slider.valueChanged.connect(self._on_control_changed)
         grid.addWidget(slider, row, 1)
         return slider
 
-    def _add_check(self, layout: QHBoxLayout, label: str) -> QCheckBox:
+    def _add_check(
+        self, layout: QHBoxLayout, label: str, *, tooltip: str = ""
+    ) -> QCheckBox:
         box = QCheckBox(label)
         box.setStyleSheet(_CHECK_STYLE)
+        if tooltip:
+            box.setToolTip(tooltip)
         box.toggled.connect(self._on_control_changed)
         layout.addWidget(box)
         return box

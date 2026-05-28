@@ -103,6 +103,30 @@ def test_set_adjustments_quantizes_to_slider_granularity(qapp) -> None:
     assert panel.current_adjustments().rotation == 46.0
 
 
+def test_controls_have_tooltips(qapp) -> None:
+    """Every control whose name might be unclear should have an explanatory
+    tooltip on hover — particularly the OCR knobs (Smart fix, Det. sensitivity,
+    Binarize, Upscale, Sharpen) and the geometry actions (Crop / Reset)."""
+    panel = AdjustPanel()
+    for control in (
+        panel._smart_fix,
+        panel._sensitivity,
+        panel._binarize,
+        panel._upscale,
+        panel._sharpen,
+        panel._grayscale,
+        panel._invert,
+        panel._rotation,
+        panel._brightness,
+        panel._contrast,
+        panel._crop_btn,
+        panel._clear_crop_btn,
+        panel._run_btn,
+        panel._reset_btn,
+    ):
+        assert control.toolTip(), f"missing tooltip on {control!r}"
+
+
 def test_set_crop_active_syncs_button_without_emitting(qapp) -> None:
     panel = AdjustPanel()
     toggles: list[bool] = []
