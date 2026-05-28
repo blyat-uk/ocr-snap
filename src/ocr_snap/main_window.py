@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStatusBar,
+    QVBoxLayout,
+    QWidget,
 )
 
 import numpy as np
@@ -27,7 +29,7 @@ from ocr_snap.gallery import GalleryPanel
 from ocr_snap.models import Adjustments, ImageState, OCRResultItem, OCRResults, array_from_pixmap
 from ocr_snap.ocr_engine import OCREngine, OCRRunOptions
 from ocr_snap.perf_settings import AppSettings
-from ocr_snap.adjust_panel import AdjustPanel
+from ocr_snap.adjust_toolbar import AdjustToolbar
 from ocr_snap.image_ops import (
     crop_to_original_normalized,
     pil_from_pixmap,
@@ -101,8 +103,14 @@ class MainWindow(QMainWindow):
         self._sidebar.setMinimumWidth(200)
         self._sidebar.hide()
 
-        self._adjust_panel = AdjustPanel()
-        self._sidebar.insert_adjust_panel(self._adjust_panel)
+        self._adjust_toolbar = AdjustToolbar()
+        self._adjust_toolbar.hide()  # shown on first image, mirrors sidebar
+
+        self._auto_ocr_enabled = False
+        self._auto_ocr_timer = QTimer(self)
+        self._auto_ocr_timer.setSingleShot(True)
+        self._auto_ocr_timer.setInterval(500)
+        self._auto_ocr_timer.timeout.connect(self._on_auto_ocr_fire)
 
         self._preview_sources: dict[str, Image.Image] = {}
         self._preview_timer = QTimer(self)
@@ -123,7 +131,13 @@ class MainWindow(QMainWindow):
         self._splitter.setCollapsible(2, False)
         self._splitter.setSizes([0, 880, 320])
 
-        self.setCentralWidget(self._splitter)
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self._splitter, stretch=1)
+        central_layout.addWidget(self._adjust_toolbar)
+        self.setCentralWidget(central)
 
         QShortcut(
             QKeySequence(QKeySequence.StandardKey.Preferences),
@@ -167,11 +181,12 @@ class MainWindow(QMainWindow):
         self._sidebar.overlay_toggled.connect(self._on_overlay_toggled)
         self._gallery.image_selected.connect(self._on_gallery_select)
         self._gallery.image_removed.connect(self._on_gallery_remove)
-        self._adjust_panel.adjustments_changed.connect(self._on_adjustments_changed)
-        self._adjust_panel.run_ocr_requested.connect(self._on_run_ocr_requested)
-        self._adjust_panel.reset_requested.connect(self._on_adjust_reset)
-        self._adjust_panel.crop_mode_toggled.connect(self._canvas.set_crop_mode)
-        self._canvas.crop_mode_changed.connect(self._adjust_panel.set_crop_active)
+        self._adjust_toolbar.adjustments_changed.connect(self._on_adjustments_changed)
+        self._adjust_toolbar.run_ocr_requested.connect(self._on_run_ocr_requested)
+        self._adjust_toolbar.reset_requested.connect(self._on_adjust_reset)
+        self._adjust_toolbar.crop_mode_toggled.connect(self._canvas.set_crop_mode)
+        self._adjust_toolbar.auto_ocr_toggled.connect(self._on_auto_ocr_toggled)
+        self._canvas.crop_mode_changed.connect(self._adjust_toolbar.set_crop_active)
         self._canvas.crop_selected.connect(self._on_crop_selected)
 
     # ── Image loaded ────────────────────────────────────────────────
@@ -189,6 +204,7 @@ class MainWindow(QMainWindow):
         if self._gallery.count >= 2:
             self._gallery.show()
 
+        self._adjust_toolbar.show()
         self._switch_to(image_id)
         self._ocr_engine.run(image_id, array)
         self._status_bar.showMessage("Running OCR...")
@@ -202,13 +218,15 @@ class MainWindow(QMainWindow):
 
         # Stop reveal timer
         self._reveal_timer.stop()
+        # Don't let a pending auto-OCR fire on the newly active image.
+        self._auto_ocr_timer.stop()
 
         self._active_id = image_id
 
         # Load incoming image
         self._canvas.load_image_state(state)
-        self._adjust_panel.set_adjustments(state.adjustments)
-        self._sidebar.set_adjusted_hint(not state.adjustments.is_identity())
+        self._adjust_toolbar.set_adjustments(state.adjustments)
+        self._adjust_toolbar.set_indicator(self._indicator_state_for(state))
 
         if state.ocr_results is not None:
             self._sidebar.set_results(
@@ -254,6 +272,10 @@ class MainWindow(QMainWindow):
         if image_id == self._active_id:
             self._canvas.set_processing(False)
             self._reveal_timer.stop()
+            # If the user adjusted while OCR was in flight, the new
+            # adjustments don't reflect in these results yet — keep the
+            # "adjusted" hint visible. Otherwise clear it.
+            self._adjust_toolbar.set_indicator(self._indicator_state_for(state))
 
             state.selection_model.hovered_index = -1
             state.selection_model.clear()
@@ -485,8 +507,12 @@ class MainWindow(QMainWindow):
         # the user re-runs OCR — adjusting invalidates the prior results.)
         if not adj.is_identity():
             self._canvas.clear_results()
-        self._sidebar.set_adjusted_hint(not adj.is_identity())
+        self._adjust_toolbar.set_indicator(
+            "adjusted" if not adj.is_identity() else "none"
+        )
         self._preview_timer.start()
+        if self._auto_ocr_enabled and not adj.is_identity():
+            self._auto_ocr_timer.start()
 
     def _render_preview(self) -> None:
         if self._active_id is None:
@@ -517,7 +543,7 @@ class MainWindow(QMainWindow):
                 state.original_pixmap.height(),
             ),
         )
-        self._adjust_panel.set_crop(crop)  # emits adjustments_changed -> preview
+        self._adjust_toolbar.set_crop(crop)  # emits adjustments_changed -> preview
 
     def _on_run_ocr_requested(self) -> None:
         if self._active_id is None:
@@ -526,6 +552,8 @@ class MainWindow(QMainWindow):
         if state is None:
             return
         self._preview_timer.stop()  # no stale preview tick after we commit
+        self._auto_ocr_timer.stop()
+        self._adjust_toolbar.set_indicator("running")
         src = self._preview_source(state)
         ocr_array = render_ocr_input(
             src, state.adjustments, self._ocr_engine.effective_long_side
@@ -548,8 +576,9 @@ class MainWindow(QMainWindow):
         self._preview_timer.stop()  # cancel any pending preview tick
         state.adjustments = Adjustments()
         state.pixmap = state.original_pixmap
-        self._adjust_panel.set_adjustments(state.adjustments)
-        self._sidebar.set_adjusted_hint(False)
+        self._adjust_toolbar.set_adjustments(state.adjustments)
+        self._adjust_toolbar.set_indicator("none")
+        self._auto_ocr_timer.stop()
         self._canvas.set_crop_mode(False)
         self._canvas.set_working_pixmap(state.original_pixmap)
         snapshot = state.results_snapshot
@@ -563,6 +592,28 @@ class MainWindow(QMainWindow):
         else:
             self._canvas.clear_results()
         self._status_bar.showMessage("Reverted to original image.", 5000)
+
+    def _indicator_state_for(self, state: ImageState) -> str:
+        """Map an ImageState to the toolbar indicator state — single source of
+        truth used by _switch_to, _on_ocr_results, and _on_ocr_error."""
+        if state.ocr_running:
+            return "running"
+        if not state.adjustments.is_identity():
+            return "adjusted"
+        return "none"
+
+    def _on_auto_ocr_toggled(self, active: bool) -> None:
+        self._auto_ocr_enabled = active
+        if not active:
+            self._auto_ocr_timer.stop()
+
+    def _on_auto_ocr_fire(self) -> None:
+        if not self._auto_ocr_enabled or self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is None or state.adjustments.is_identity():
+            return
+        self._on_run_ocr_requested()
 
     # ── Settings ────────────────────────────────────────────────────
 
@@ -656,6 +707,7 @@ class MainWindow(QMainWindow):
             self._canvas.show_placeholder()
             self._sidebar.clear()
             self._sidebar.hide()
+            self._adjust_toolbar.hide()
             self._gallery.hide()
             return
 
@@ -672,6 +724,11 @@ class MainWindow(QMainWindow):
 
     def _on_ocr_error(self, message: str) -> None:
         self._status_bar.showMessage(f"OCR Error: {message}", 10000)
+        # Reset the indicator — "running" otherwise sticks after a failure.
+        if self._active_id is not None:
+            state = self._images.get(self._active_id)
+            if state is not None:
+                self._adjust_toolbar.set_indicator(self._indicator_state_for(state))
 
     def _on_model_load_failed(self, message: str) -> None:
         self._status_bar.showMessage(

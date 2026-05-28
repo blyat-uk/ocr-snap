@@ -138,3 +138,38 @@ def test_get_correction_ocr_builds_lazily_and_caches(qapp) -> None:
     second = engine._get_correction_ocr()
     assert first is second  # cached, not rebuilt
     assert built == [True]  # built once, with corrections enabled
+
+
+def test_run_supersedes_pending_for_same_image(qapp) -> None:
+    """Re-running for an image_id with a pending queue entry replaces it,
+    preserving pending entries for other image_ids."""
+    engine = OCREngine(OCRPerfSettings(device="cpu"))
+    engine._start_worker = lambda: None  # type: ignore[method-assign]
+    a = np.zeros((4, 4, 3), dtype=np.uint8)
+    b = np.ones((4, 4, 3), dtype=np.uint8) * 128
+    c = np.full((4, 4, 3), 64, dtype=np.uint8)
+
+    engine.run("img1", a)
+    engine.run("img2", c)
+    engine.run("img1", b)  # supersedes the first img1 entry
+
+    queue = list(engine._queue)
+    ids = [q[0] for q in queue]
+    # Order: img2 was added before the supersede; the new img1 entry appends
+    # at the tail (preserves fairness — other images don't get bumped).
+    assert ids == ["img2", "img1"]
+    img1_entry = next(q for q in queue if q[0] == "img1")
+    assert img1_entry[1] is b
+
+
+def test_run_no_op_when_no_pending_entry(qapp) -> None:
+    """A single run with no pre-existing pending entry still leaves exactly
+    one queue entry (the no-op path of the supersede rebuild)."""
+    engine = OCREngine(OCRPerfSettings(device="cpu"))
+    engine._start_worker = lambda: None  # type: ignore[method-assign]
+    a = np.zeros((4, 4, 3), dtype=np.uint8)
+    engine.run("img1", a)
+    queue = list(engine._queue)
+    assert len(queue) == 1
+    assert queue[0][0] == "img1"
+    assert queue[0][1] is a

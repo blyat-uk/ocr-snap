@@ -134,3 +134,26 @@ def test_status_chip_set_state_unknown_raises(qapp) -> None:
     chip = StatusChip()
     with pytest.raises(KeyError):
         chip.set_state("not-a-real-state")
+
+
+def test_adjust_toolbar_icon_factories_resolve(qapp) -> None:
+    factories = [
+        Icons.rotate,
+        Icons.brightness,
+        Icons.contrast,
+        Icons.sharpen,
+        Icons.grayscale,
+        Icons.invert,
+        Icons.binarize,
+        Icons.upscale,
+        Icons.smart_fix,
+        Icons.sensitivity,
+        Icons.crop,
+        Icons.reset,
+        Icons.run_ocr,
+        Icons.auto_ocr,
+    ]
+    for fac in factories:
+        icon = fac()
+        assert isinstance(icon, QIcon), f"{fac.__name__} did not return a QIcon"
+        assert not icon.isNull(), f"{fac.__name__} returned a null icon"
