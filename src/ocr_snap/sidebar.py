@@ -6,7 +6,6 @@ from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QContextMenuEvent, QEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -20,6 +19,7 @@ from PyQt6.QtWidgets import (
 
 from ocr_snap.canvas import _add_merge_permutation_actions
 from ocr_snap.models import OCRResults, SelectionModel, item_color
+from ocr_snap.pill import Pill, TogglePill
 from ocr_snap.theme import Icons, IconButton, StatusChip, Tokens
 
 _ENTRY_STYLE = f"""
@@ -253,6 +253,7 @@ class OCRSidebar(QWidget):
     confidence_filter_changed = pyqtSignal(float)
     reocr_requested = pyqtSignal(float)
     overlay_toggled = pyqtSignal(bool)
+    copy_image_requested = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -283,17 +284,27 @@ class OCRSidebar(QWidget):
 
         layout.addLayout(header_layout)
 
-        # Confidence threshold slider
-        slider_layout = QHBoxLayout()
-        slider_layout.setContentsMargins(14, 0, 14, 6)
-        slider_layout.setSpacing(8)
+        # ── Controls card ───────────────────────────────────────────────
+        controls_card = QFrame()
+        controls_card.setStyleSheet(
+            f"QFrame {{ background: {Tokens.bg_surface}; "
+            f"border: 1px solid {Tokens.border}; "
+            f"border-radius: {Tokens.r_md}px; }}"
+        )
+        controls_card_layout = QVBoxLayout(controls_card)
+        controls_card_layout.setContentsMargins(12, 10, 12, 10)
+        controls_card_layout.setSpacing(8)
+
+        slider_row = QHBoxLayout()
+        slider_row.setContentsMargins(0, 0, 0, 0)
+        slider_row.setSpacing(8)
 
         slider_label = QLabel("Min confidence")
         slider_label.setStyleSheet(
             f"color: {Tokens.text_muted}; font-size: {Tokens.text_base}px; "
             f"background: transparent; border: none;"
         )
-        slider_layout.addWidget(slider_label)
+        slider_row.addWidget(slider_label)
 
         self._confidence_slider = QSlider(Qt.Orientation.Horizontal)
         self._confidence_slider.setRange(0, 100)
@@ -310,7 +321,7 @@ class OCRSidebar(QWidget):
             f"  background: {Tokens.accent};"
             f"}}"
         )
-        slider_layout.addWidget(self._confidence_slider, stretch=1)
+        slider_row.addWidget(self._confidence_slider, stretch=1)
 
         self._confidence_value_label = QLabel("50%")
         self._confidence_value_label.setFixedWidth(36)
@@ -318,30 +329,32 @@ class OCRSidebar(QWidget):
             f"color: {Tokens.text_primary}; font-size: {Tokens.text_base}px; "
             f"background: transparent; border: none;"
         )
-        slider_layout.addWidget(self._confidence_value_label)
+        slider_row.addWidget(self._confidence_value_label)
 
-        layout.addLayout(slider_layout)
+        controls_card_layout.addLayout(slider_row)
+
+        pills_row = QHBoxLayout()
+        pills_row.setContentsMargins(0, 0, 0, 0)
+        pills_row.setSpacing(6)
+
+        self._overlay_pill = TogglePill(Icons.eye, "Overlay")
+        self._overlay_pill.toggled.connect(self.overlay_toggled.emit)
+        pills_row.addWidget(self._overlay_pill)
+
+        self._copy_image_pill = Pill(Icons.image, "Copy image")
+        self._copy_image_pill.clicked.connect(self.copy_image_requested.emit)
+        pills_row.addWidget(self._copy_image_pill)
+
+        pills_row.addStretch()
+        controls_card_layout.addLayout(pills_row)
+
+        card_wrapper_layout = QHBoxLayout()
+        card_wrapper_layout.setContentsMargins(14, 0, 14, 8)
+        card_wrapper_layout.addWidget(controls_card)
+        layout.addLayout(card_wrapper_layout)
 
         self._confidence_slider.valueChanged.connect(self._on_slider_value_changed)
         self._confidence_slider.sliderReleased.connect(self._on_slider_released)
-
-        # Overlay checkbox
-        overlay_layout = QHBoxLayout()
-        overlay_layout.setContentsMargins(14, 0, 14, 6)
-        self._overlay_checkbox = QCheckBox("Overlay")
-        self._overlay_checkbox.setStyleSheet(
-            f"QCheckBox {{ color: {Tokens.text_primary}; font-size: {Tokens.text_base}px; "
-            f"background: transparent; border: none; }}"
-            f"QCheckBox::indicator {{ width: 14px; height: 14px; }}"
-            f"QCheckBox::indicator:unchecked {{ border: 1px solid {Tokens.border_strong}; "
-            f"border-radius: 2px; background: transparent; }}"
-            f"QCheckBox::indicator:checked {{ border: 1px solid {Tokens.translation}; "
-            f"border-radius: 2px; background: {Tokens.translation}; }}"
-        )
-        self._overlay_checkbox.toggled.connect(self.overlay_toggled.emit)
-        overlay_layout.addWidget(self._overlay_checkbox)
-        overlay_layout.addStretch()
-        layout.addLayout(overlay_layout)
 
         self._scroll_area = QScrollArea()
         self._scroll_area.setWidgetResizable(True)
@@ -481,9 +494,9 @@ class OCRSidebar(QWidget):
         self.confidence_filter_changed.emit(value / 100.0)
 
     def set_overlay_checked(self, checked: bool) -> None:
-        self._overlay_checkbox.blockSignals(True)
-        self._overlay_checkbox.setChecked(checked)
-        self._overlay_checkbox.blockSignals(False)
+        self._overlay_pill.blockSignals(True)
+        self._overlay_pill.setChecked(checked)
+        self._overlay_pill.blockSignals(False)
 
     def _on_slider_released(self) -> None:
         value = self._confidence_slider.value() / 100.0
