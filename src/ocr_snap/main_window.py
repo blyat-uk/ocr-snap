@@ -179,6 +179,7 @@ class MainWindow(QMainWindow):
         self._sidebar.confidence_filter_changed.connect(self._on_confidence_filter_changed)
         self._sidebar.reocr_requested.connect(self._on_reocr_requested)
         self._sidebar.overlay_toggled.connect(self._on_overlay_toggled)
+        self._sidebar.copy_image_requested.connect(self._on_copy_image_requested)
         self._gallery.image_selected.connect(self._on_gallery_select)
         self._gallery.image_removed.connect(self._on_gallery_remove)
         self._adjust_toolbar.adjustments_changed.connect(self._on_adjustments_changed)
@@ -484,6 +485,20 @@ class MainWindow(QMainWindow):
         if state is not None:
             state.overlay_enabled = checked
         self._canvas.set_overlay_visible(checked)
+
+    def _on_copy_image_requested(self) -> None:
+        if self._active_id is None:
+            return
+        try:
+            pixmap = self._canvas.grab()
+            clipboard = QApplication.clipboard()
+            if clipboard is None:
+                raise RuntimeError("Clipboard unavailable")
+            clipboard.setPixmap(pixmap)
+        except (OSError, RuntimeError) as exc:
+            self._status_bar.showMessage(f"Could not copy image: {exc}", 5000)
+            return
+        self._status_bar.showMessage("Image copied to clipboard.", 3000)
 
     # ── Image adjustments ───────────────────────────────────────────
 

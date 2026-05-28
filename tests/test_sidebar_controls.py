@@ -66,3 +66,14 @@ def test_set_active_state_image_and_results_enables_both(qapp) -> None:
     sb.set_active_state(has_image=True, has_results=True)
     assert sb._copy_image_pill.isEnabled() is True
     assert sb._overlay_pill.isEnabled() is True
+
+
+def test_copy_image_pill_click_triggers_signal_chain(qapp) -> None:
+    """Clicking the Copy image pill must emit copy_image_requested from
+    the sidebar — the MainWindow handler is tested manually (clipboard)."""
+    sb = OCRSidebar()
+    sb.set_active_state(has_image=True, has_results=False)
+    fired: list[bool] = []
+    sb.copy_image_requested.connect(lambda: fired.append(True))
+    sb._copy_image_pill.click()
+    assert fired == [True]
