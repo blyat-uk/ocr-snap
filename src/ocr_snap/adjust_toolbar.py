@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable
+from typing import Literal
 
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
@@ -506,3 +507,68 @@ class AdjustToolbar(QWidget):
 
     def current_adjustments(self) -> Adjustments:
         return dataclasses.replace(self._adj)
+
+    def set_crop(self, crop: tuple[float, float, float, float] | None) -> None:
+        if self._adj.crop == crop:
+            # No-op: same crop already set. Skip the emission so the
+            # coordinator doesn't re-render the preview for nothing.
+            return
+        self._adj = dataclasses.replace(self._adj, crop=crop)
+        if self._crop_btn.isChecked():
+            self._crop_btn.blockSignals(True)
+            self._crop_btn.setChecked(False)
+            self._crop_btn.blockSignals(False)
+        self.adjustments_changed.emit(self._adj)
+
+    def set_crop_active(self, active: bool) -> None:
+        """Sync the Crop pill to the canvas's actual crop-mode state without
+        re-emitting ``crop_mode_toggled``."""
+        if self._crop_btn.isChecked() != active:
+            self._crop_btn.blockSignals(True)
+            self._crop_btn.setChecked(active)
+            self._crop_btn.blockSignals(False)
+
+    def set_adjustments(self, adj: Adjustments) -> None:
+        """Load state into the controls without emitting ``adjustments_changed``.
+        The internal Adjustments is then rebuilt from the (integer-quantized)
+        widget values so it never diverges from what the widgets hold."""
+        self._loading = True
+        try:
+            for pill, value in (
+                (self._rotation, int(round(adj.rotation))),
+                (self._brightness, int(round(adj.brightness * 100))),
+                (self._contrast, int(round(adj.contrast * 100))),
+                (self._sharpen, int(round(adj.sharpen * 100))),
+                (self._sensitivity, int(round(adj.det_sensitivity * 100))),
+            ):
+                pill.set_value(value)
+            for box, checked in (
+                (self._grayscale, adj.grayscale),
+                (self._invert, adj.invert),
+                (self._binarize, adj.binarize),
+                (self._upscale, adj.upscale),
+                (self._smart_fix, adj.smart_fix),
+            ):
+                box.blockSignals(True)
+                box.setChecked(checked)
+                box.blockSignals(False)
+            self._crop_btn.blockSignals(True)
+            self._crop_btn.setChecked(False)
+            self._crop_btn.blockSignals(False)
+            self._adj = self._adjustments_from_widgets(adj.crop)
+        finally:
+            self._loading = False
+
+    def set_indicator(self, state: Literal["none", "adjusted", "running"]) -> None:
+        """Set the right-side indicator chip: hidden, "● Adjusted", or "● Running…"."""
+        if state == "none":
+            self._indicator.hide()
+            self._indicator.setText("")
+        elif state == "adjusted":
+            self._indicator.setText("● Adjusted")
+            self._indicator.show()
+        elif state == "running":
+            self._indicator.setText("● Running…")
+            self._indicator.show()
+        else:
+            raise ValueError(f"invalid indicator state: {state!r}")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from PyQt6.QtCore import Qt
 
 from ocr_snap.adjust_toolbar import AdjustToolbar, _Pill, _SliderPill, _SliderPopover, _TogglePill
@@ -282,3 +283,60 @@ def test_toolbar_upscale_and_smart_fix_pills_emit(qapp) -> None:
     tb._smart_fix.setChecked(True)
     assert seen[-1].upscale is True
     assert seen[-1].smart_fix is True
+
+
+def test_toolbar_set_adjustments_loads_without_emitting(qapp) -> None:
+    tb = AdjustToolbar()
+    seen: list[Adjustments] = []
+    tb.adjustments_changed.connect(seen.append)
+    tb.set_adjustments(Adjustments(grayscale=True, rotation=45.0, brightness=1.2))
+    assert seen == []
+    assert tb._grayscale.isChecked() is True
+    assert tb._rotation.value() == 45
+    assert tb._brightness.value() == 120
+
+
+def test_toolbar_set_adjustments_quantizes_to_slider_granularity(qapp) -> None:
+    tb = AdjustToolbar()
+    tb.set_adjustments(Adjustments(rotation=45.7))
+    assert tb._rotation.value() == 46
+    assert tb.current_adjustments().rotation == 46.0
+
+
+def test_toolbar_set_crop_updates_adjustments_and_emits(qapp) -> None:
+    tb = AdjustToolbar()
+    seen: list[Adjustments] = []
+    tb.adjustments_changed.connect(seen.append)
+    tb.set_crop((0.1, 0.1, 0.5, 0.5))
+    assert tb.current_adjustments().crop == (0.1, 0.1, 0.5, 0.5)
+    assert seen and seen[-1].crop == (0.1, 0.1, 0.5, 0.5)
+
+
+def test_toolbar_set_crop_active_syncs_without_emitting(qapp) -> None:
+    tb = AdjustToolbar()
+    toggles: list[bool] = []
+    tb.crop_mode_toggled.connect(toggles.append)
+    tb.set_crop_active(True)
+    assert tb._crop_btn.isChecked() is True
+    tb.set_crop_active(False)
+    assert tb._crop_btn.isChecked() is False
+    assert toggles == []
+
+
+def test_toolbar_indicator_state_machine(qapp) -> None:
+    tb = AdjustToolbar()
+    assert tb._indicator.isHidden() is True
+    tb.set_indicator("adjusted")
+    assert tb._indicator.isHidden() is False
+    assert "Adjusted" in tb._indicator.text()
+    tb.set_indicator("running")
+    assert tb._indicator.isHidden() is False
+    assert "Running" in tb._indicator.text()
+    tb.set_indicator("none")
+    assert tb._indicator.isHidden() is True
+
+
+def test_toolbar_indicator_invalid_state_raises(qapp) -> None:
+    tb = AdjustToolbar()
+    with pytest.raises(ValueError, match="indicator state"):
+        tb.set_indicator("nonsense")  # type: ignore[arg-type]
