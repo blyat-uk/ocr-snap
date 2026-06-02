@@ -41,6 +41,8 @@ from ocr_snap.settings_dialog import SettingsDialog
 from ocr_snap.sidebar import OCRSidebar
 from ocr_snap.theme import Icons, Tokens
 from ocr_snap.translator import TranslationEngine
+from ocr_snap.config import save_app_settings
+from ocr_snap.languages import deepl_source_for, option_for
 
 _APP_STYLE = f"""
 QMainWindow, QWidget {{
@@ -83,7 +85,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(_APP_STYLE)
 
         self._app_settings = settings
-        self._ocr_engine = OCREngine(settings.perf, self)
+        self._ocr_engine = OCREngine(settings.perf, settings.ocr_language, self)
         self._ocr_engine.preload()
         self._translator = TranslationEngine(settings.deepl_api_key, self)
 
@@ -100,6 +102,7 @@ class MainWindow(QMainWindow):
         self._canvas.set_effective_long_side(self._ocr_engine.effective_long_side)
         self._canvas.set_animation_mode(self._app_settings.perf.processing_animation)
         self._sidebar = OCRSidebar()
+        self._sidebar.set_language(self._app_settings.ocr_language)
         self._sidebar.setMinimumWidth(200)
         self._sidebar.hide()
 
@@ -176,6 +179,7 @@ class MainWindow(QMainWindow):
         self._sidebar.delete_requested.connect(self._on_delete)
         self._translator.translation_ready.connect(self._on_translation_results)
         self._translator.error_occurred.connect(self._on_translation_error)
+        self._sidebar.language_changed.connect(self._on_language_changed)
         self._sidebar.confidence_filter_changed.connect(self._on_confidence_filter_changed)
         self._sidebar.reocr_requested.connect(self._on_reocr_requested)
         self._sidebar.overlay_toggled.connect(self._on_overlay_toggled)
@@ -199,6 +203,7 @@ class MainWindow(QMainWindow):
     def _on_image_loaded(self, array: np.ndarray, pixmap: QPixmap) -> None:
         image_id = str(uuid4())
         state = ImageState(image_id, pixmap, array)
+        state.ocr_language = self._app_settings.ocr_language
         state.ocr_running = True
         self._images[image_id] = state
         self._image_order.append(image_id)
@@ -353,6 +358,7 @@ class MainWindow(QMainWindow):
                 state.pixmap,
                 max_long_side=self._ocr_engine.effective_long_side,
             )
+        state.ocr_language = self._app_settings.ocr_language
         state.ocr_threshold = threshold
         state.ocr_running = True
         self._canvas.set_processing(True)
@@ -606,6 +612,7 @@ class MainWindow(QMainWindow):
         )
         state.pixmap = pixmap_from_pil(render_display(src, state.adjustments))
         self._canvas.set_working_pixmap(state.pixmap)
+        state.ocr_language = self._app_settings.ocr_language
         options = OCRRunOptions.from_adjustments(state.adjustments, state.ocr_threshold)
         state.ocr_running = True
         self._canvas.set_processing(True)
@@ -690,6 +697,38 @@ class MainWindow(QMainWindow):
 
     # ── Settings ────────────────────────────────────────────────────
 
+    def _on_language_changed(self, code: str) -> None:
+        if code == self._app_settings.ocr_language:
+            return
+        self._app_settings.ocr_language = code
+        save_app_settings(self._app_settings)
+        self._ocr_engine.set_language(code)
+        if self._active_id is None:
+            return
+        state = self._images.get(self._active_id)
+        if state is None:
+            return
+        # Rebuild the OCR array if it was dropped after a successful OCR. The
+        # working pixmap already reflects any image adjustments.
+        if state.array is None:
+            state.array = array_from_pixmap(
+                state.pixmap,
+                max_long_side=self._ocr_engine.effective_long_side,
+            )
+        state.ocr_language = code
+        state.ocr_running = True
+        self._canvas.set_processing(True)
+        self._gallery.set_processing(self._active_id, True)
+        self._adjust_toolbar.set_indicator("running")
+        self._ocr_engine.run(
+            self._active_id,
+            state.array,
+            OCRRunOptions.from_adjustments(state.adjustments, state.ocr_threshold),
+        )
+        self._status_bar.showMessage(
+            f"Re-running OCR in {option_for(code).label}…"
+        )
+
     def _on_settings_requested(self) -> None:
         dialog = SettingsDialog(self._app_settings, self)
         needs_restart = {"flag": False}
@@ -724,6 +763,10 @@ class MainWindow(QMainWindow):
         state = self._images.get(image_id)
         if state is None or state.ocr_results is None:
             return
+        source_lang = deepl_source_for(state.ocr_language)
+        if source_lang == "EN":
+            # Source equals the DeepL target — translating EN→EN is a no-op.
+            return
         if only_missing:
             items = [
                 (it.index, it.text)
@@ -734,7 +777,7 @@ class MainWindow(QMainWindow):
             items = [(it.index, it.text) for it in state.ocr_results.items]
         if not items:
             return
-        if not self._translator.translate(image_id, items):
+        if not self._translator.translate(image_id, items, source_lang=source_lang):
             return
         state.translation_running = True
         if image_id == self._active_id:

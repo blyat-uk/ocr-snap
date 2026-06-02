@@ -73,3 +73,45 @@ def test_start_translation_default_submits_all(qapp) -> None:
 
     submitted = mw._translator.translate.call_args.args[1]
     assert submitted == [(0, "a"), (1, "b")]
+
+
+def test_start_translation_skips_when_source_is_english(qapp) -> None:
+    from ocr_snap.main_window import MainWindow
+
+    items = [
+        OCRResultItem(index=0, text="hello", confidence=0.9,
+                      polygon=np.zeros((4, 2)), bbox=(0, 0, 1, 1)),
+    ]
+    state = _make_state(items)
+    state.ocr_language = "en"
+    mw = MainWindow.__new__(MainWindow)
+    mw._images = {"img": state}
+    mw._active_id = "img"
+    mw._translator = MagicMock()
+    mw._translator.translate.return_value = True
+    mw._sidebar = MagicMock()
+
+    mw._start_translation("img")
+
+    mw._translator.translate.assert_not_called()
+
+
+def test_start_translation_passes_mapped_source_lang(qapp) -> None:
+    from ocr_snap.main_window import MainWindow
+
+    items = [
+        OCRResultItem(index=0, text="你好", confidence=0.9,
+                      polygon=np.zeros((4, 2)), bbox=(0, 0, 1, 1)),
+    ]
+    state = _make_state(items)
+    state.ocr_language = "ch"
+    mw = MainWindow.__new__(MainWindow)
+    mw._images = {"img": state}
+    mw._active_id = "img"
+    mw._translator = MagicMock()
+    mw._translator.translate.return_value = True
+    mw._sidebar = MagicMock()
+
+    mw._start_translation("img")
+
+    assert mw._translator.translate.call_args.kwargs.get("source_lang") == "ZH"
