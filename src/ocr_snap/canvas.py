@@ -7,13 +7,14 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PyQt6.QtCore import QEvent, QPointF, QRectF, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QPointF, QRectF, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QBrush,
     QColor,
     QContextMenuEvent,
     QDragEnterEvent,
     QDropEvent,
+    QEnterEvent,
     QFont,
     QFontMetricsF,
     QIcon,
@@ -24,6 +25,7 @@ from PyQt6.QtGui import (
     QMouseEvent,
     QPainter,
     QPainterPath,
+    QPaintEvent,
     QPen,
     QPixmap,
     QRadialGradient,
@@ -44,6 +46,8 @@ from PyQt6.QtWidgets import (
     QGraphicsView,
     QMenu,
     QPinchGesture,
+    QWidget,
+    QWidgetAction,
 )
 
 from ocr_snap.models import OCRResults, SelectionModel, array_from_qimage, item_color
@@ -67,37 +71,210 @@ _PLUS_WIDTH = 16
 _MAX_SCALE = 8.0
 
 
-def _make_order_icon(indices: tuple[int, ...]) -> QIcon:
-    """Create an icon with colored squares representing the merge order."""
-    n = len(indices)
-    width = n * _SQUARE_SIZE + (n - 1) * (_SQUARE_SPACING + _PLUS_WIDTH + _SQUARE_SPACING)
-    height = _SQUARE_SIZE + 6  # small vertical padding
-    pixmap = QPixmap(width, height)
-    pixmap.fill(QColor(0, 0, 0, 0))
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+def _order_row_width(n: int) -> int:
+    """Pixel width of a row of ``n`` colored squares with ``+`` separators."""
+    return n * _SQUARE_SIZE + (n - 1) * (_SQUARE_SPACING + _PLUS_WIDTH + _SQUARE_SPACING)
+
+
+def _draw_square(painter: QPainter, idx: int, x: int, y: int) -> None:
+    """Draw one rounded color square with its 1-based index centered, at (x, y)."""
     font = QFont()
     font.setPixelSize(16)
     font.setBold(True)
     painter.setFont(font)
-    y = 2
-    x = 0
+    color = item_color(idx)
+    painter.setBrush(QBrush(color))
+    painter.setPen(QPen(color.darker(130), 1))
+    painter.drawRoundedRect(x, y, _SQUARE_SIZE, _SQUARE_SIZE, 2, 2)
+    painter.setPen(QPen(QColor(0, 0, 0, 180)))
+    painter.drawText(x, y, _SQUARE_SIZE, _SQUARE_SIZE, Qt.AlignmentFlag.AlignCenter, str(idx + 1))
+
+
+def _paint_order_squares(
+    painter: QPainter, indices: tuple[int, ...], origin_x: int, origin_y: int
+) -> None:
+    """Paint the merge-order squares (numbered, '+'-separated) at a fixed size.
+
+    Squares are always ``_SQUARE_SIZE`` px; the row simply grows wider with more
+    labels. The caller owns ``painter`` and is responsible for ending it.
+    """
+    n = len(indices)
+    x = origin_x
+    y = origin_y
     for i, idx in enumerate(indices):
-        color = item_color(idx)
-        painter.setBrush(QBrush(color))
-        painter.setPen(QPen(color.darker(130), 1))
-        painter.drawRoundedRect(x, y, _SQUARE_SIZE, _SQUARE_SIZE, 2, 2)
-        # Draw index number centered in the square
-        painter.setPen(QPen(QColor(0, 0, 0, 180)))
-        painter.drawText(x, y, _SQUARE_SIZE, _SQUARE_SIZE, Qt.AlignmentFlag.AlignCenter, str(idx + 1))
+        _draw_square(painter, idx, x, y)
         x += _SQUARE_SIZE
         if i < n - 1:
             x += _SQUARE_SPACING
             painter.setPen(QPen(QColor(180, 180, 180)))
             painter.drawText(x, y, _PLUS_WIDTH, _SQUARE_SIZE, Qt.AlignmentFlag.AlignCenter, "+")
             x += _PLUS_WIDTH + _SQUARE_SPACING
+
+
+def _make_order_icon(indices: tuple[int, ...]) -> QIcon:
+    """Create an icon with colored squares representing the merge order."""
+    width = _order_row_width(len(indices))
+    height = _SQUARE_SIZE + 6  # small vertical padding
+    pixmap = QPixmap(width, height)
+    pixmap.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    _paint_order_squares(painter, indices, 0, 2)
     painter.end()
     return QIcon(pixmap)
+
+
+def _make_swatch_icon(idx: int) -> QIcon:
+    """A single square color swatch icon, used as the icon for pick-level
+    cascade submenu rows. Square so it scales cleanly in QMenu's icon slot."""
+    pixmap = QPixmap(_SQUARE_SIZE, _SQUARE_SIZE)
+    pixmap.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    _draw_square(painter, idx, 0, 0)
+    painter.end()
+    return QIcon(pixmap)
+
+
+_ORDINAL_WORDS = (
+    "first", "second", "third", "fourth", "fifth",
+    "sixth", "seventh", "eighth", "ninth", "tenth",
+)
+
+
+def _ordinal(n: int) -> str:
+    """1-based ordinal word ('first'..'tenth'); falls back to '{n}th'."""
+    return _ORDINAL_WORDS[n - 1] if 1 <= n <= len(_ORDINAL_WORDS) else f"{n}th"
+
+
+class _MergeOrderWidget(QWidget):
+    """Menu-row widget that paints the merge-order squares at full, fixed size.
+
+    Using a widget instead of a QAction icon avoids QMenu's 16px icon slot,
+    which scaled the wide swatch row down (the more labels, the tinier the
+    squares). Here squares stay ``_SQUARE_SIZE`` px and the row grows wider.
+    """
+
+    clicked = pyqtSignal()
+
+    _PAD_X = 10
+    _PAD_Y = 4
+
+    def __init__(self, indices: tuple[int, ...], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._indices = indices
+        self._hover = False
+        self.setMouseTracking(True)
+        self.setFixedSize(
+            _order_row_width(len(indices)) + 2 * self._PAD_X,
+            _SQUARE_SIZE + 2 * self._PAD_Y,
+        )
+
+    def enterEvent(self, event: QEnterEvent | None) -> None:  # type: ignore[override]
+        self._hover = True
+        self.update()
+
+    def leaveEvent(self, event: QEvent | None) -> None:
+        self._hover = False
+        self.update()
+
+    def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:  # type: ignore[override]
+        if (
+            event is not None
+            and event.button() == Qt.MouseButton.LeftButton
+            and self.rect().contains(event.position().toPoint())
+        ):
+            self.clicked.emit()
+
+    def paintEvent(self, event: QPaintEvent | None) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self._hover:
+            painter.fillRect(self.rect(), self.palette().highlight())
+        _paint_order_squares(painter, self._indices, self._PAD_X, self._PAD_Y)
+        painter.end()
+
+
+class _MergeOrderAction(QWidgetAction):
+    """A menu action whose row is a fixed-size merge-order swatch preview.
+
+    ``order`` is the full label order emitted on click; ``display`` (defaults to
+    ``order``) is what the swatch row renders — the cascade leaf shows only the
+    final two labels while still emitting the full navigated order.
+    """
+
+    def __init__(
+        self,
+        order: tuple[int, ...] | list[int],
+        callback: Callable[[list[int]], None],
+        parent: QObject | None = None,
+        *,
+        display: tuple[int, ...] | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._order = list(order)
+        self._callback = callback
+        shown = tuple(order) if display is None else display
+        widget = _MergeOrderWidget(shown)
+        widget.clicked.connect(self._activate)
+        self.setDefaultWidget(widget)
+
+    def _activate(self) -> None:
+        self._callback(self._order)
+        # Mirror a normal action click: tear down the whole open menu chain
+        # (this submenu plus its parent context menu).
+        w: QWidget | None = self.defaultWidget()
+        while w is not None:
+            if isinstance(w, QMenu):
+                w.close()
+            w = w.parentWidget()
+
+
+_FLAT_MENU_MAX = 3  # selections up to this many use the flat permutation menu
+
+
+def _populate_cascade_level(
+    menu: QMenu,
+    prefix: list[int],
+    remaining: list[int],
+    callback: Callable[[list[int]], None],
+) -> None:
+    """Fill one cascade level.
+
+    With more than two labels left, offer one swatch submenu per remaining label
+    (pick the next item); each child is populated lazily. With exactly two left,
+    offer the two final orders as leaf rows that display only those two swatches
+    but emit the full ``prefix + permutation`` order.
+    """
+    if len(remaining) == 2:
+        menu.addSection("Select the rest")
+        for perm in itertools.permutations(remaining):
+            order = prefix + list(perm)
+            menu.addAction(_MergeOrderAction(order, callback, menu, display=perm))
+        return
+    menu.addSection(f"Select the {_ordinal(len(prefix) + 1)} item")
+    for label in remaining:
+        sub = menu.addMenu(_make_swatch_icon(label), "")
+        rest = [x for x in remaining if x != label]
+        _connect_lazy_cascade(sub, prefix + [label], rest, callback)
+
+
+def _connect_lazy_cascade(
+    submenu: QMenu,
+    prefix: list[int],
+    remaining: list[int],
+    callback: Callable[[list[int]], None],
+) -> None:
+    """Populate ``submenu`` the first time it is about to be shown."""
+    built = {"done": False}
+
+    def build() -> None:
+        if built["done"]:
+            return
+        built["done"] = True
+        _populate_cascade_level(submenu, prefix, remaining, callback)
+
+    submenu.aboutToShow.connect(build)
 
 
 def _add_merge_permutation_actions(
@@ -105,18 +282,28 @@ def _add_merge_permutation_actions(
     indices: list[int],
     callback: Callable[[list[int]], None],
 ) -> None:
-    """Add merge actions for all permutations of the selected indices."""
-    perms = list(itertools.permutations(indices))
-    if len(perms) == 1:
-        icon = _make_order_icon(perms[0])
-        order = list(perms[0])
-        menu.addAction(icon, "Merge", lambda o=order: callback(o))  # type: ignore[misc]
-    else:
-        merge_menu = menu.addMenu(Icons.merge(), f"Merge selected ({len(indices)})")
-        for perm in perms:
-            icon = _make_order_icon(perm)
-            order = list(perm)
-            merge_menu.addAction(icon, "", lambda o=order: callback(o))  # type: ignore[misc]
+    """Add merge actions for the selected indices.
+
+    Up to ``_FLAT_MENU_MAX`` labels: a flat submenu listing every permutation.
+    Beyond that: a lazily-built cascade that picks one label per level (depth
+    N-1, last level = the final two), so no single menu ever holds the full N!
+    set of orders.
+    """
+    n = len(indices)
+    if n <= 1:
+        if n == 1:
+            order = list(indices)
+            menu.addAction(  # type: ignore[misc]
+                _make_order_icon(tuple(indices)), "Merge", lambda o=order: callback(o)
+            )
+        return
+    if n <= _FLAT_MENU_MAX:
+        merge_menu = menu.addMenu(Icons.merge(), f"Merge selected ({n})")
+        for perm in itertools.permutations(indices):
+            merge_menu.addAction(_MergeOrderAction(perm, callback, merge_menu))
+        return
+    root = menu.addMenu(Icons.merge(), f"Merge selected ({n})")
+    _populate_cascade_level(root, [], list(indices), callback)
 
 
 class _Spark:
