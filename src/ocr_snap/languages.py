@@ -17,17 +17,18 @@ class LanguageOption:
     deepl_source: str | None
 
 
+# Ordered alphabetically by label — the order shown in the language dropdown.
 LANGUAGES: list[LanguageOption] = [
+    LanguageOption("Arabic", "ar", "AR"),
     LanguageOption("Chinese (Simplified)", "ch", "ZH"),
     LanguageOption("Chinese (Traditional)", "chinese_cht", "ZH"),
     LanguageOption("English", "en", "EN"),
-    LanguageOption("Japanese", "japan", "JA"),
-    LanguageOption("Korean", "korean", "KO"),
     LanguageOption("French", "fr", "FR"),
     LanguageOption("German", "de", "DE"),
-    LanguageOption("Spanish", "es", "ES"),
+    LanguageOption("Japanese", "japan", "JA"),
+    LanguageOption("Korean", "korean", "KO"),
     LanguageOption("Russian", "ru", "RU"),
-    LanguageOption("Arabic", "ar", "AR"),
+    LanguageOption("Spanish", "es", "ES"),
 ]
 
 DEFAULT_LANGUAGE = "ch"

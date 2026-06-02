@@ -84,7 +84,10 @@ def test_sidebar_has_language_combo_with_ten_items(qapp) -> None:
     sb = OCRSidebar()
     assert isinstance(sb._language_combo, QComboBox)
     assert sb._language_combo.count() == 10
-    assert sb._language_combo.itemData(0) == "ch"
+    # The dropdown lists languages alphabetically by label.
+    labels = [sb._language_combo.itemText(i) for i in range(sb._language_combo.count())]
+    assert labels == sorted(labels)
+    assert sb._language_combo.findData("ch") >= 0  # Chinese (Simplified) present
 
 
 def test_language_combo_emits_paddle_code_on_user_change(qapp) -> None:

@@ -7,6 +7,11 @@ def test_curated_set_has_ten_languages() -> None:
     assert len(L.LANGUAGES) == 10
 
 
+def test_languages_are_sorted_alphabetically_by_label() -> None:
+    labels = [opt.label for opt in L.LANGUAGES]
+    assert labels == sorted(labels)
+
+
 def test_default_language_is_chinese_simplified() -> None:
     assert L.DEFAULT_LANGUAGE == "ch"
     assert L.option_for("ch").label == "Chinese (Simplified)"
