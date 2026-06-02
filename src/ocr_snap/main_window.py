@@ -716,6 +716,10 @@ class MainWindow(QMainWindow):
                 max_long_side=self._ocr_engine.effective_long_side,
             )
         state.ocr_language = code
+        # Cancel any pending Auto-OCR debounce so it can't fire a redundant
+        # second OCR right after this language-switch dispatch (mirrors
+        # _on_run_ocr_requested).
+        self._auto_ocr_timer.stop()
         state.ocr_running = True
         self._canvas.set_processing(True)
         self._gallery.set_processing(self._active_id, True)
