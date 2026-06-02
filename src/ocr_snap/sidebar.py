@@ -6,6 +6,7 @@ from PyQt6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, Qt, pyqtSigna
 from PyQt6.QtGui import QColor, QContextMenuEvent, QEnterEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -19,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ocr_snap.canvas import _add_merge_permutation_actions
+from ocr_snap.languages import LANGUAGES
 from ocr_snap.models import OCRResults, SelectionModel, item_color
 from ocr_snap.pill import Pill, TogglePill
 from ocr_snap.theme import Icons, IconButton, StatusChip, Tokens
@@ -363,6 +365,7 @@ class OCRSidebar(QWidget):
     merge_requested = pyqtSignal(list)
     delete_requested = pyqtSignal()
     confidence_filter_changed = pyqtSignal(float)
+    language_changed = pyqtSignal(str)
     reocr_requested = pyqtSignal(float)
     overlay_toggled = pyqtSignal(bool)
     copy_image_requested = pyqtSignal()
@@ -407,6 +410,33 @@ class OCRSidebar(QWidget):
         controls_card_layout = QVBoxLayout(controls_card)
         controls_card_layout.setContentsMargins(12, 10, 12, 10)
         controls_card_layout.setSpacing(8)
+
+        lang_row = QHBoxLayout()
+        lang_row.setContentsMargins(0, 0, 0, 0)
+        lang_row.setSpacing(8)
+
+        lang_label = QLabel("Language")
+        lang_label.setStyleSheet(
+            f"color: {Tokens.text_muted}; font-size: {Tokens.text_base}px; "
+            f"background: transparent; border: none;"
+        )
+        lang_row.addWidget(lang_label)
+
+        self._language_combo = QComboBox()
+        for opt in LANGUAGES:
+            self._language_combo.addItem(opt.label, opt.paddle_code)
+        self._language_combo.setStyleSheet(
+            f"QComboBox {{ background: {Tokens.bg_raised}; color: {Tokens.text_primary}; "
+            f"border: 1px solid {Tokens.border}; border-radius: {Tokens.r_sm}px; "
+            f"padding: 2px 6px; font-size: {Tokens.text_base}px; }}"
+            f"QComboBox QAbstractItemView {{ background: {Tokens.bg_surface}; "
+            f"color: {Tokens.text_primary}; "
+            f"selection-background-color: {Tokens.accent_deep}; }}"
+        )
+        self._language_combo.currentIndexChanged.connect(self._on_language_index_changed)
+        lang_row.addWidget(self._language_combo, stretch=1)
+
+        controls_card_layout.addLayout(lang_row)
 
         slider_row = QHBoxLayout()
         slider_row.setContentsMargins(0, 0, 0, 0)
@@ -597,6 +627,19 @@ class OCRSidebar(QWidget):
         self._confidence_slider.setValue(value)
         self._confidence_value_label.setText(f"{value}%")
         self._confidence_slider.blockSignals(False)
+
+    def _on_language_index_changed(self, _index: int) -> None:
+        code = self._language_combo.currentData()
+        if code is not None:
+            self.language_changed.emit(code)
+
+    def set_language(self, code: str) -> None:
+        idx = self._language_combo.findData(code)
+        if idx < 0:
+            return
+        self._language_combo.blockSignals(True)
+        self._language_combo.setCurrentIndex(idx)
+        self._language_combo.blockSignals(False)
 
     def filter_by_confidence(self, threshold: float) -> None:
         for entry in self._entries:
