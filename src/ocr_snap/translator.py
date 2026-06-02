@@ -16,34 +16,46 @@ class TranslationEngine(QObject):
         super().__init__(parent)
         self._api_key = api_key
         self._thread: threading.Thread | None = None
-        self._pending: tuple[str, list[tuple[int, str]]] | None = None
+        self._pending: tuple[str, list[tuple[int, str]], str | None] | None = None
         self._lock = threading.Lock()
 
     def set_api_key(self, key: str) -> None:
         self._api_key = key
 
-    def translate(self, image_id: str, items: list[tuple[int, str]]) -> bool:
+    def translate(
+        self,
+        image_id: str,
+        items: list[tuple[int, str]],
+        source_lang: str | None = None,
+    ) -> bool:
         if not self._api_key or not items:
             return False
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
-                self._pending = (image_id, items)
+                self._pending = (image_id, items, source_lang)
                 return True
-        self._start(image_id, items)
+        self._start(image_id, items, source_lang)
         return True
 
-    def _start(self, image_id: str, items: list[tuple[int, str]]) -> None:
+    def _start(
+        self, image_id: str, items: list[tuple[int, str]], source_lang: str | None
+    ) -> None:
         self._thread = threading.Thread(
-            target=self._run_worker, args=(image_id, items), daemon=True
+            target=self._run_worker, args=(image_id, items, source_lang), daemon=True
         )
         self._thread.start()
 
-    def _run_worker(self, image_id: str, items: list[tuple[int, str]]) -> None:
+    def _run_worker(
+        self, image_id: str, items: list[tuple[int, str]], source_lang: str | None
+    ) -> None:
         try:
             texts = [text for _, text in items]
             indices = [idx for idx, _ in items]
 
-            data: list[tuple[str, str]] = [("target_lang", "EN")]
+            data: list[tuple[str, str]] = []
+            if source_lang:
+                data.append(("source_lang", source_lang))
+            data.append(("target_lang", "EN"))
             for text in texts:
                 data.append(("text", text))
 
@@ -71,7 +83,7 @@ class TranslationEngine(QObject):
                 pending = self._pending
                 self._pending = None
             if pending is not None:
-                self._start(pending[0], pending[1])
+                self._start(pending[0], pending[1], pending[2])
 
     def shutdown(self) -> None:
         with self._lock:

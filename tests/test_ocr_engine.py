@@ -173,3 +173,70 @@ def test_run_no_op_when_no_pending_entry(qapp) -> None:
     assert len(queue) == 1
     assert queue[0][0] == "img1"
     assert queue[0][1] is a
+
+
+def test_resolve_models_ch_mobile(qapp) -> None:
+    engine = OCREngine(OCRPerfSettings(model_variant="mobile", device="cpu"), language="ch")
+    assert engine._resolve_models("ch") == ("PP-OCRv5_mobile_det", "PP-OCRv5_mobile_rec")
+
+
+def test_resolve_models_ch_server(qapp) -> None:
+    engine = OCREngine(OCRPerfSettings(model_variant="server", device="cpu"), language="ch")
+    assert engine._resolve_models("ch") == ("PP-OCRv5_server_det", "PP-OCRv5_server_rec")
+
+
+def test_resolve_models_japan_server_uses_unified_rec(qapp) -> None:
+    engine = OCREngine(OCRPerfSettings(model_variant="server", device="cpu"))
+    assert engine._resolve_models("japan") == ("PP-OCRv5_server_det", "PP-OCRv5_server_rec")
+
+
+def test_resolve_models_per_language_rec(qapp) -> None:
+    engine = OCREngine(OCRPerfSettings(model_variant="mobile", device="cpu"))
+    assert engine._resolve_models("en") == ("PP-OCRv5_mobile_det", "en_PP-OCRv5_mobile_rec")
+    assert engine._resolve_models("korean") == ("PP-OCRv5_mobile_det", "korean_PP-OCRv5_mobile_rec")
+    assert engine._resolve_models("fr") == ("PP-OCRv5_mobile_det", "latin_PP-OCRv5_mobile_rec")
+    assert engine._resolve_models("de") == ("PP-OCRv5_mobile_det", "latin_PP-OCRv5_mobile_rec")
+    assert engine._resolve_models("es") == ("PP-OCRv5_mobile_det", "latin_PP-OCRv5_mobile_rec")
+    assert engine._resolve_models("ru") == ("PP-OCRv5_mobile_det", "eslav_PP-OCRv5_mobile_rec")
+    assert engine._resolve_models("ar") == ("PP-OCRv5_mobile_det", "arabic_PP-OCRv5_mobile_rec")
+
+
+def test_build_kwargs_shape(qapp) -> None:
+    engine = OCREngine(OCRPerfSettings(model_variant="mobile", device="cpu", paddle_cpu_threads=3), language="fr")
+    kw = engine._build_kwargs(corrections=False)
+    assert kw["text_detection_model_name"] == "PP-OCRv5_mobile_det"
+    assert kw["text_recognition_model_name"] == "latin_PP-OCRv5_mobile_rec"
+    assert kw["device"] == "cpu"
+    assert kw["cpu_threads"] == 3
+    assert kw["use_textline_orientation"] is False
+
+
+def test_set_language_change_triggers_rebuild(qapp) -> None:
+    engine = _ready_engine(qapp)
+    engine._built_language = "ch"
+    engine._ocr = _FakeOCR()  # stale model for the old language
+    built_langs: list[str] = []
+
+    def fake_build(*, corrections: bool) -> _FakeOCR:
+        built_langs.append(engine._language)
+        return _FakeOCR()
+
+    engine._build_ocr = fake_build  # type: ignore[method-assign]
+    engine.set_language("en")
+    engine._process_one("img1", np.zeros((4, 4, 3), dtype=np.uint8), OCRRunOptions())
+    assert built_langs == ["en"]  # rebuilt for the new language
+
+
+def test_set_language_same_value_no_rebuild(qapp) -> None:
+    engine = _ready_engine(qapp)
+    engine._built_language = "ch"
+    fake = _FakeOCR()
+    engine._ocr = fake
+
+    def boom(*, corrections: bool):  # must not be called
+        raise AssertionError("should not rebuild")
+
+    engine._build_ocr = boom  # type: ignore[method-assign]
+    engine.set_language("ch")  # no change
+    engine._process_one("img1", np.zeros((4, 4, 3), dtype=np.uint8), OCRRunOptions())
+    assert len(fake.calls) == 1  # reused the cached model

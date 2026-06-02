@@ -82,3 +82,14 @@ def test_ocr_result_item_edited_defaults_to_false() -> None:
         bbox=(0.0, 0.0, 1.0, 1.0),
     )
     assert item.edited is False
+
+
+def test_image_state_defaults_ocr_language_to_default(qapp) -> None:
+    from PyQt6.QtGui import QPixmap
+    from ocr_snap.languages import DEFAULT_LANGUAGE
+    from ocr_snap.models import ImageState
+
+    pm = QPixmap(4, 4)
+    pm.fill()
+    state = ImageState("id", pm, None)
+    assert state.ocr_language == DEFAULT_LANGUAGE

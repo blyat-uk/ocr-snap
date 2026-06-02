@@ -77,3 +77,29 @@ def test_copy_image_pill_click_triggers_signal_chain(qapp) -> None:
     sb.copy_image_requested.connect(lambda: fired.append(True))
     sb._copy_image_pill.click()
     assert fired == [True]
+
+
+def test_sidebar_has_language_combo_with_ten_items(qapp) -> None:
+    from PyQt6.QtWidgets import QComboBox
+    sb = OCRSidebar()
+    assert isinstance(sb._language_combo, QComboBox)
+    assert sb._language_combo.count() == 10
+    assert sb._language_combo.itemData(0) == "ch"
+
+
+def test_language_combo_emits_paddle_code_on_user_change(qapp) -> None:
+    sb = OCRSidebar()
+    received: list[str] = []
+    sb.language_changed.connect(received.append)
+    idx = sb._language_combo.findData("en")
+    sb._language_combo.setCurrentIndex(idx)
+    assert received == ["en"]
+
+
+def test_set_language_selects_without_emitting(qapp) -> None:
+    sb = OCRSidebar()
+    received: list[str] = []
+    sb.language_changed.connect(received.append)
+    sb.set_language("japan")
+    assert received == []
+    assert sb._language_combo.currentData() == "japan"
