@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal
 
+from ocr_snap.languages import DEFAULT_LANGUAGE
 from ocr_snap.models import Adjustments, OCRResultItem, OCRResults
 from ocr_snap.perf_settings import OCRPerfSettings, effective_ocr_long_side
 
@@ -77,10 +78,16 @@ class OCREngine(QObject):
     model_load_failed = pyqtSignal(str)
 
     def __init__(
-        self, perf: OCRPerfSettings, parent: QObject | None = None
+        self,
+        perf: OCRPerfSettings,
+        language: str = DEFAULT_LANGUAGE,
+        parent: QObject | None = None,
     ) -> None:
         super().__init__(parent)
         self._perf = perf
+        self._language = language
+        # The language the cached models were built with (worker-confined).
+        self._built_language = language
         # Resolve device eagerly so the canvas can read effective_long_side
         # before the preload thread actually instantiates PaddleOCR.
         device = self._resolve_device()
@@ -94,6 +101,12 @@ class OCREngine(QObject):
         self._preload_done = threading.Event()
         self._preload_error: str | None = None
         self._predict_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+    def set_language(self, language: str) -> None:
+        """Switch the OCR language live. The worker rebuilds its models lazily
+        on the next job (it compares ``_built_language`` to ``_language``).
+        Assignment is atomic, so no lock is needed here."""
+        self._language = language
 
     def preload(self) -> None:
         thread = threading.Thread(target=self._preload_worker, daemon=True)
@@ -142,28 +155,49 @@ class OCREngine(QObject):
             pass
         return "cpu"
 
-    def _build_ocr(self, *, corrections: bool) -> object:
-        from paddleocr import PaddleOCR
+    # PaddleOCR 3.4.1 per-language recognition models (mirrors its own
+    # _get_ocr_model_names). ch/chinese_cht/japan share the unified CJK+En
+    # rec model, which has a mobile and a server variant; the rest are
+    # mobile-only language/script models.
+    _CJK_LANGS = ("ch", "chinese_cht", "japan")
+    _REC_BY_LANG = {
+        "en": "en_PP-OCRv5_mobile_rec",
+        "korean": "korean_PP-OCRv5_mobile_rec",
+        "fr": "latin_PP-OCRv5_mobile_rec",
+        "de": "latin_PP-OCRv5_mobile_rec",
+        "es": "latin_PP-OCRv5_mobile_rec",
+        "ru": "eslav_PP-OCRv5_mobile_rec",
+        "ar": "arabic_PP-OCRv5_mobile_rec",
+    }
 
-        if self._perf.model_variant == "server":
-            det = "PP-OCRv5_server_det"
-            rec = "PP-OCRv5_server_rec"
+    def _resolve_models(self, language: str) -> tuple[str, str]:
+        """Return (detection_model_name, recognition_model_name) for a language."""
+        server = self._perf.model_variant == "server"
+        det = "PP-OCRv5_server_det" if server else "PP-OCRv5_mobile_det"
+        if language in self._CJK_LANGS:
+            rec = "PP-OCRv5_server_rec" if server else "PP-OCRv5_mobile_rec"
         else:
-            det = "PP-OCRv5_mobile_det"
-            rec = "PP-OCRv5_mobile_rec"
+            rec = self._REC_BY_LANG.get(language, "PP-OCRv5_mobile_rec")
+        return det, rec
 
-        device = self._resolved_device
+    def _build_kwargs(self, *, corrections: bool) -> dict[str, object]:
+        det, rec = self._resolve_models(self._language)
         kwargs: dict[str, object] = dict(
             text_detection_model_name=det,
             text_recognition_model_name=rec,
             use_doc_orientation_classify=corrections,
             use_doc_unwarping=corrections,
             use_textline_orientation=corrections,
-            device=device,
+            device=self._resolved_device,
         )
-        if device == "cpu" and self._perf.paddle_cpu_threads > 0:
+        if self._resolved_device == "cpu" and self._perf.paddle_cpu_threads > 0:
             kwargs["cpu_threads"] = self._perf.paddle_cpu_threads
-        return PaddleOCR(**kwargs)
+        return kwargs
+
+    def _build_ocr(self, *, corrections: bool) -> object:
+        from paddleocr import PaddleOCR
+
+        return PaddleOCR(**self._build_kwargs(corrections=corrections))
 
     def _init_ocr(self) -> None:
         if self._ocr is None:
@@ -175,6 +209,12 @@ class OCREngine(QObject):
         return self._correction_ocr
 
     def _select_ocr(self, options: OCRRunOptions) -> object:
+        if self._built_language != self._language:
+            # Language switched since the cached models were built — drop them
+            # so the next build below uses the new language.
+            self._ocr = None
+            self._correction_ocr = None
+            self._built_language = self._language
         if options.uses_correction():
             return self._get_correction_ocr()
         self._init_ocr()
