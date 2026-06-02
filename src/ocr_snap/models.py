@@ -6,6 +6,8 @@ import numpy as np
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QImage, QPixmap
 
+from ocr_snap.languages import DEFAULT_LANGUAGE
+
 
 def item_color(index: int) -> QColor:
     """Return a distinct color for the given item index."""
@@ -130,6 +132,9 @@ class ImageState:
         self.confidence_filter: float = 0.5
         self.ocr_threshold: float = 0.5
         self.overlay_enabled: bool = False
+        # Language this image's current results were produced with; used as the
+        # translation source. Set on every OCR dispatch from the global setting.
+        self.ocr_language: str = DEFAULT_LANGUAGE
 
 
 class SelectionModel(QObject):
