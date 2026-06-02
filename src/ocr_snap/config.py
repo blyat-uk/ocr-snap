@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ocr_snap.hardware_profile import detect
+from ocr_snap.languages import DEFAULT_LANGUAGE
 from ocr_snap.perf_settings import (
     AppSettings,
     OCRPerfSettings,
@@ -103,7 +104,7 @@ def _from_dict(data: dict[str, Any]) -> AppSettings:
     )
     return AppSettings(
         deepl_api_key=str(data.get("deepl_api_key", "") or ""),
-        ocr_language=str(data.get("ocr_language", "ch") or "ch"),
+        ocr_language=str(data.get("ocr_language", DEFAULT_LANGUAGE) or DEFAULT_LANGUAGE),
         perf=perf,
         hardware_tier=str(data.get("hardware_tier", "medium")),
         detected_ram_gb=float(data.get("detected_ram_gb", 0.0)),

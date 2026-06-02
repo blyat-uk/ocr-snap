@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 from ocr_snap.hardware_profile import HardwareProfile
+from ocr_snap.languages import DEFAULT_LANGUAGE
 
 DISPLAY_LONG_SIDE: int = 2400
 _CPU_LONG_SIDE_CAP: int = 1600
@@ -29,7 +30,7 @@ class OCRPerfSettings:
 class AppSettings:
     """Root settings document (JSON-serializable)."""
     deepl_api_key: str = ""
-    ocr_language: str = "ch"
+    ocr_language: str = DEFAULT_LANGUAGE
     perf: OCRPerfSettings = field(default_factory=OCRPerfSettings)
     hardware_tier: str = "medium"
     detected_ram_gb: float = 0.0
