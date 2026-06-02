@@ -29,6 +29,7 @@ class OCRPerfSettings:
 class AppSettings:
     """Root settings document (JSON-serializable)."""
     deepl_api_key: str = ""
+    ocr_language: str = "ch"
     perf: OCRPerfSettings = field(default_factory=OCRPerfSettings)
     hardware_tier: str = "medium"
     detected_ram_gb: float = 0.0

@@ -109,3 +109,30 @@ def test_corrupt_file_triggers_first_run(tmp_config_path: Path) -> None:
     with patch("ocr_snap.config.detect", return_value=fake_profile):
         settings = config.load_app_settings()
     assert settings.hardware_tier == "medium"
+
+
+def test_round_trip_preserves_ocr_language(tmp_config_path: Path) -> None:
+    original = AppSettings(deepl_api_key="", ocr_language="japan")
+    config.save_app_settings(original)
+    loaded = config.load_app_settings()
+    assert loaded.ocr_language == "japan"
+
+
+def test_ocr_language_defaults_to_ch_when_absent(tmp_config_path: Path) -> None:
+    tmp_config_path.write_text(json.dumps({
+        "deepl_api_key": "",
+        "hardware_tier": "medium",
+        "detected_ram_gb": 8.0,
+        "detected_cpu_cores": 8,
+        "perf": {"model_variant": "mobile", "device": "auto"},
+        "version": 1,
+    }))
+    settings = config.load_app_settings()
+    assert settings.ocr_language == "ch"
+
+
+def test_ocr_language_survives_tier_change(tmp_config_path: Path) -> None:
+    from ocr_snap.perf_settings import apply_tier
+    settings = AppSettings(ocr_language="korean", detected_cpu_cores=8)
+    apply_tier(settings, "high")
+    assert settings.ocr_language == "korean"
