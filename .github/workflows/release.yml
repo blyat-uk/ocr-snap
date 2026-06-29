@@ -1,12 +1,20 @@
 name: Release
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag (e.g. v0.2.0)"
         required: true
         type: string
+
+# Required for the built-in GITHUB_TOKEN to create the release (and tag, on
+# manual dispatch when the tag does not yet exist).
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -33,7 +41,7 @@ jobs:
             binary_name: ocr-snap-macos-cpu
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -76,29 +84,16 @@ jobs:
             $STDLIB_HIDDEN \
             src/ocr_snap/__main__.py
 
-      - name: Set up rclone
-        uses: AnimMouse/setup-rclone@v1
+      - name: Publish binary to GitHub Release
+        # Each matrix job appends its binary to the same release, keyed by tag.
+        # On macOS, --windowed --onefile also emits ./dist/<name>.app/; the
+        # literal (wildcard-free) path below matches only the single binary, so
+        # the .app bundle is not uploaded.
+        uses: softprops/action-gh-release@v3
         with:
-          rclone_config: ${{ secrets.RCLONE_CONFIG_MEGA }}
-
-      - name: Upload to MEGA
-        shell: bash
-        env:
-          MEGA_UPLOAD_PATH: ${{ vars.MEGA_UPLOAD_PATH }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          BINARY_NAME: ${{ matrix.binary_name }}
-        run: |
-          DEST="mega:${MEGA_UPLOAD_PATH}${RELEASE_TAG}/"
-          # On macOS, --windowed --onefile produces both ./dist/<name> (single
-          # binary) and ./dist/<name>.app/ (bundle dir). We copy the file by
-          # path, which rclone resolves as a single-file copy and skips the
-          # .app dir — keep this rclone invocation file-targeted, not dir.
-          rclone copy "./dist/${BINARY_NAME}" "$DEST" \
-            --retries 5 --low-level-retries 20 --transfers 1
-          # Verify the upload actually landed; rclone copy can report success
-          # without the file appearing remotely under flaky MEGA conditions.
-          if ! rclone lsf "$DEST" | grep -qFx "${BINARY_NAME}"; then
-            echo "ERROR: ${BINARY_NAME} not found in ${DEST} after upload" >&2
-            exit 1
-          fi
-          echo "Uploaded and verified ${DEST}${BINARY_NAME}" >> "$GITHUB_STEP_SUMMARY"
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/${{ matrix.binary_name }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          draft: false
+          prerelease: false
