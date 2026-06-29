@@ -56,6 +56,13 @@ jobs:
       - name: Build with PyInstaller
         shell: bash
         run: |
+          # paddle/paddleocr are excluded here and pip-installed at first run
+          # (runtime_bootstrap), then run on THIS frozen interpreter. Their dep
+          # tree (pandas, pydantic, ...) imports stdlib modules the Qt-only app
+          # never touches — e.g. zoneinfo — which PyInstaller therefore omits.
+          # Force the whole stdlib in so those runtime imports resolve. Computed
+          # on the target runner so the module set matches the platform.
+          STDLIB_HIDDEN=$(python tools/stdlib_hidden_imports.py)
           pyinstaller \
             --onefile \
             --windowed \
@@ -66,6 +73,7 @@ jobs:
             --exclude-module test \
             --exclude-module pydoc_data \
             --collect-all pip \
+            $STDLIB_HIDDEN \
             src/ocr_snap/__main__.py
 
       - name: Set up rclone
