@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import ocr_snap.runtime.install as install_module
 from ocr_snap.runtime import engine
 from ocr_snap.runtime.engine import EngineState
 from ocr_snap.runtime.gpu import GpuInfo
@@ -69,7 +70,11 @@ class FakeRunner:
 
 
 @pytest.fixture
-def context(tmp_path):
+def context(tmp_path, monkeypatch):
+    # A CUDA install needs ~14 GB free; CI runners have less. The installer's
+    # disk check has its own test (test_not_enough_disk_space).
+    Usage = type("Usage", (), {"free": 100 * 10**9})
+    monkeypatch.setattr(install_module.shutil, "disk_usage", lambda path: Usage)
     constraints = tmp_path / "bundle" / "constraints.txt"
     constraints.parent.mkdir()
     constraints.write_text("numpy==2.2.6\npaddlepaddle==3.3.0\nnvidia-cudnn-cu12==9.9.0.52\n")
