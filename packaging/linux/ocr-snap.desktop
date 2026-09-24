@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=OCR Snap
+Comment=Paste or drop an image and copy its text (PaddleOCR, optional DeepL translation)
+Exec=ocr-snap
+Icon=ocr-snap
+Terminal=false
+Categories=Graphics;Utility;
+Keywords=OCR;text;recognition;screenshot;translate;
+Actions=setup-engine;
+
+[Desktop Action setup-engine]
+Name=OCR engine setup (GPU or CPU)
+Exec=ocr-snap --setup-engine

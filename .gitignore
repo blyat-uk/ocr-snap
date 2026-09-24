@@ -160,3 +160,6 @@ site/
 # Internal specs/plans/notes — kept locally, not shared
 docs/
 .superpowers/
+
+# Release builds (packaging/build.py)
+.build-cache/

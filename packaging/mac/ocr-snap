@@ -1,0 +1,6 @@
+#!/bin/sh
+# OCR Snap.app's executable: the bundled interpreter on the bundled
+# sources, all of which live in Contents/Resources.
+root=$(cd "$(dirname "$0")/../Resources" && pwd)
+export OCR_SNAP_BUNDLE="$root"
+exec "$root/python/bin/python3" -s -E -B -X utf8 "$root/src/main.py" "$@"
