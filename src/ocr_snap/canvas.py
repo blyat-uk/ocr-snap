@@ -691,12 +691,16 @@ class OCRCanvas(QGraphicsView):
 
     def show_placeholder(self) -> None:
         self._remove_placeholder()
+        # "⌘V" on macOS, "Ctrl+V" elsewhere.
+        paste_keys = QKeySequence(QKeySequence.StandardKey.Paste).toString(
+            QKeySequence.SequenceFormat.NativeText
+        )
         html = (
             f'<div style="text-align:center;">'
             f'<p style="font-size:{Tokens.text_hero + 6}px; color:{Tokens.text_muted}; font-weight:600;">'
             f'Paste or drop an image</p>'
             f'<p style="font-size:{Tokens.text_lg}px; color:{Tokens.text_muted}; margin-top:8px; opacity:0.7;">'
-            f'Ctrl+V from clipboard &nbsp;&middot;&nbsp; drag &amp; drop a file</p>'
+            f'{paste_keys} from clipboard &nbsp;&middot;&nbsp; drag &amp; drop a file</p>'
             f'</div>'
         )
         self._placeholder = QGraphicsTextItem()

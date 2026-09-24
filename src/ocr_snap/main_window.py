@@ -142,11 +142,13 @@ class MainWindow(QMainWindow):
         central_layout.addWidget(self._adjust_toolbar)
         self.setCentralWidget(central)
 
-        QShortcut(
-            QKeySequence(QKeySequence.StandardKey.Preferences),
-            self,
-            activated=self._on_settings_requested,
-        )
+        # StandardKey.Preferences is Cmd+, on macOS but unbound on Windows and
+        # GNOME; Ctrl+, (the documented shortcut) is the fallback there.
+        settings_keys = QKeySequence.keyBindings(QKeySequence.StandardKey.Preferences) or [
+            QKeySequence("Ctrl+,")
+        ]
+        for keys in settings_keys:
+            QShortcut(keys, self, activated=self._on_settings_requested)
 
         # Status bar + permanent Settings button on its right side.
         self._status_bar = QStatusBar()
