@@ -1,120 +1,121 @@
+"""`python -m ocr_snap` / `ocr-snap`: the OCR Snap window.
+
+Startup order (`main`): `ocr_snap.bootstrap.boot()` first -- stdout/stderr
+to the log file when there is no console, then the bundle's OCR engine
+activated before anything imports paddle -- then the flags:
+
+- `--version` prints the version and exits.
+- `--self-test`, `--install-engine {auto,cpu,gpu}`, `--ocr-smoke`: headless
+  CI modes, see `ocr_snap/cli.py` for what they do and their exit codes.
+- `--setup-engine` opens the engine setup dialog even when an engine is
+  installed (bundles only; a note and the window in developer mode).
+- `--quit-after SECONDS` closes the window after that long (the smoke
+  test's hook).
+
+In a bundle without an installed engine the setup dialog
+(`ocr_snap/engine_setup.py`) comes first; leaving it without an engine
+quits. The main window is imported only after that. In developer mode
+paddle comes from the environment (the `ocr` / `ocr-gpu` extras).
+"""
 from __future__ import annotations
 
-import importlib.util
+import argparse
+import os
 import sys
-import traceback
+from pathlib import Path
 
-from dotenv import load_dotenv
-from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtWidgets import QApplication, QMessageBox, QProgressDialog
+from ocr_snap.bootstrap import Boot, boot, reactivate
+from ocr_snap.version import __version__
 
-from ocr_snap import _build_info
-from ocr_snap.runtime_bootstrap import (
-    default_runtime_dir,
-    ensure_paddle_installed,
-    is_paddle_installed,
-)
+APP_NAME = "OCR Snap"
+ICON_FILE = Path(__file__).resolve().parent / "resources" / "app-icon.png"
 
 
-class _InstallWorker(QThread):
-    progress = pyqtSignal(str)
-    finished_ok = pyqtSignal()
-    finished_err = pyqtSignal(str)
-
-    def __init__(self, target_dir, package):
-        super().__init__()
-        self._target_dir = target_dir
-        self._package = package
-
-    def run(self):
-        try:
-            ensure_paddle_installed(
-                self._target_dir,
-                self._package,
-                on_progress=self.progress.emit,
-            )
-            self.finished_ok.emit()
-        except Exception:
-            self.finished_err.emit(traceback.format_exc())
+def _program_name() -> str:
+    """How this run was started, for --help."""
+    name = os.path.basename(sys.argv[0]) if sys.argv else ""
+    return "python -m ocr_snap" if name in ("", "__main__.py", "main.py") else name
 
 
-def _paddle_importable() -> bool:
-    """True when paddle already resolves on ``sys.path``."""
-    return importlib.util.find_spec("paddle") is not None
+def _parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
+    parser = argparse.ArgumentParser(prog=_program_name(), description=APP_NAME)
+    parser.add_argument("--version", action="store_true", help="print the version and exit")
+    parser.add_argument("--setup-engine", action="store_true",
+                        help="open the OCR engine setup (install, reinstall or switch GPU/CPU)")
+    parser.add_argument("--self-test", action="store_true", help="headless checks, JSON report (CI)")
+    parser.add_argument("--install-engine", choices=("auto", "cpu", "gpu"), default=None,
+                        help="install the OCR engine without a window (CI)")
+    parser.add_argument("--ocr-smoke", action="store_true", help="OCR one rendered line and exit (CI)")
+    parser.add_argument("--quit-after", type=float, default=None, help=argparse.SUPPRESS)
+    return parser.parse_known_args(argv)
 
 
-def _run_first_run_install() -> bool:
-    if _paddle_importable():
-        # Source checkout with the ocr/ocr-gpu extra installed. The runtime
-        # dir holds whichever flavor _build_info names — CPU for every build
-        # but linux-gpu/windows-gpu — so prepending it would shadow the
-        # environment's own paddle and silently downgrade a GPU install.
-        return True
+def run_engine_setup(started: Boot) -> bool:
+    """The engine setup dialog; True when an engine is installed afterwards."""
+    from PyQt6.QtWidgets import QDialog
 
-    target_dir = default_runtime_dir()
-    # Fast path: already installed. Still call ensure_paddle_installed so
-    # sys.path gets the prepend.
-    if is_paddle_installed(target_dir):
-        ensure_paddle_installed(target_dir, _build_info.PADDLE_PACKAGE)
-        return True
+    from ocr_snap.engine_setup import EngineSetup, EngineSetupDialog
 
-    dialog = QProgressDialog(
-        "Preparing OCR engine (first run only)...", "", 0, 0
-    )
-    dialog.setWindowTitle("OCR Snap — First-run setup")
-    dialog.setMinimumDuration(0)
-    # Pip can't be safely interrupted mid-install. Remove the Cancel button
-    # rather than leaving a button that does nothing useful.
-    dialog.setCancelButton(None)
-
-    worker = _InstallWorker(target_dir, _build_info.PADDLE_PACKAGE)
-    result = {"ok": False, "err": ""}
-
-    def on_progress(msg: str) -> None:
-        dialog.setLabelText(msg)
-
-    def on_ok() -> None:
-        result["ok"] = True
-        dialog.close()
-
-    def on_err(msg: str) -> None:
-        result["err"] = msg
-        dialog.close()
-
-    worker.progress.connect(on_progress)
-    worker.finished_ok.connect(on_ok)
-    worker.finished_err.connect(on_err)
-    worker.start()
-    dialog.exec()
-    worker.wait()
-
-    if not result["ok"]:
-        msg = QMessageBox(
-            QMessageBox.Icon.Critical,
-            "OCR Snap — setup failed",
-            "Failed to install OCR engine.",
-        )
-        msg.setDetailedText(result["err"])
-        msg.exec()
-        return False
-    return True
+    assert started.bundle is not None
+    setup = EngineSetup(started.bundle)
+    dialog = EngineSetupDialog(setup, have_engine=started.state is not None)
+    accepted = dialog.exec() == QDialog.DialogCode.Accepted
+    setup.cancel()
+    setup.wait(60)
+    dialog.deleteLater()
+    if accepted:
+        reactivate(started)
+    return started.state is not None
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
+    started = boot()
+    args, qt_args = _parse(sys.argv[1:] if argv is None else list(argv))
+    if args.version:
+        print(__version__, flush=True)
+        return 0
+    if args.self_test or args.install_engine or args.ocr_smoke:
+        from ocr_snap import cli
+
+        if args.self_test:
+            return cli.self_test(started)
+        if args.install_engine:
+            return cli.install_engine(started, args.install_engine)
+        return cli.ocr_smoke(started)
+
+    from dotenv import load_dotenv
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtGui import QIcon
+    from PyQt6.QtWidgets import QApplication, QMessageBox
+
     load_dotenv()
-    app = QApplication(sys.argv)
-    app.setApplicationName("OCR Snap")
+    app = QApplication([sys.argv[0] if sys.argv else "ocr-snap", *qt_args])
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(__version__)
+    if ICON_FILE.is_file():
+        app.setWindowIcon(QIcon(str(ICON_FILE)))
 
-    if not _run_first_run_install():
-        sys.exit(1)
+    if started.bundle_error:
+        QMessageBox.critical(None, f"{APP_NAME} — broken installation",
+                             f"{started.bundle_error}\n\nReinstall {APP_NAME}.")
+        return 1
+    if started.bundled and (started.needs_engine or args.setup_engine):
+        if not run_engine_setup(started):
+            return 1
+    elif args.setup_engine:
+        print("--setup-engine: developer mode (no $OCR_SNAP_BUNDLE), paddle comes from this environment",
+              file=sys.stderr)
 
-    # Lazy import: MUST happen after runtime_bootstrap so numpy and other
-    # transitive deps resolve against the runtime install (sys.path[0]) rather
-    # than the bundled PyInstaller copy.
+    # Imported only now: nothing may import paddle before the engine is active.
     from ocr_snap.config import load_app_settings
     from ocr_snap.main_window import MainWindow
 
-    settings = load_app_settings()
-    window = MainWindow(settings)
+    window = MainWindow(load_app_settings())
     window.show()
-    sys.exit(app.exec())
+    if args.quit_after is not None:
+        def quit_now() -> None:
+            window.close()
+            app.quit()
+
+        QTimer.singleShot(max(0, int(args.quit_after * 1000)), quit_now)
+    return app.exec()

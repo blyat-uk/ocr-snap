@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sys
 import threading
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -22,14 +24,25 @@ def test_engine_effective_long_side_cpu_below_cap(qapp) -> None:
     assert engine.effective_long_side == 1280
 
 
-def test_engine_effective_long_side_auto_no_cuda(qapp) -> None:
+def test_engine_effective_long_side_auto_no_cuda(qapp, monkeypatch) -> None:
     """On a machine without CUDA, auto resolves to cpu, so the cap applies."""
+    monkeypatch.setitem(sys.modules, "paddle", SimpleNamespace(is_compiled_with_cuda=lambda: False))
     perf = OCRPerfSettings(device="auto", ocr_max_long_side=2400)
     engine = OCREngine(perf)
-    # On the CI runner / dev mac, paddle.is_compiled_with_cuda() is False.
-    # If you're on a CUDA-enabled box, this assertion will need to be either
-    # skipped or split.
+    assert engine.device == "cpu"
     assert engine.effective_long_side == 1600
+
+
+def test_engine_auto_resolves_gpu_with_cuda_paddle(qapp, monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "paddle", SimpleNamespace(is_compiled_with_cuda=lambda: True))
+    engine = OCREngine(OCRPerfSettings(device="auto", ocr_max_long_side=2400))
+    assert engine.device == "gpu"
+    assert engine.effective_long_side == 2400
+
+
+def test_engine_auto_falls_back_to_cpu_without_paddle(qapp, monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "paddle", None)  # import paddle raises ImportError
+    assert OCREngine(OCRPerfSettings(device="auto")).device == "cpu"
 
 
 def test_build_kwargs_disables_mkldnn_on_cpu(qapp) -> None:

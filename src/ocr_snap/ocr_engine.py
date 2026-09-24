@@ -102,6 +102,23 @@ class OCREngine(QObject):
         self._preload_error: str | None = None
         self._predict_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
+    @property
+    def device(self) -> str:
+        """The device OCR runs on: "gpu" or "cpu"."""
+        return self._resolved_device
+
+    def model_names(self) -> tuple[str, str]:
+        """(detection, recognition) model names for the current language."""
+        return self._resolve_models(self._language)
+
+    def load_models(self) -> object:
+        """Build the plain (no-correction) PaddleOCR engine now, on the
+        calling thread, and return it. For the headless checks; the window
+        uses preload()."""
+        self._init_ocr()
+        assert self._ocr is not None
+        return self._ocr
+
     def set_language(self, language: str) -> None:
         """Switch the OCR language live. The worker rebuilds its models lazily
         on the next job (it compares ``_built_language`` to ``_language``).
