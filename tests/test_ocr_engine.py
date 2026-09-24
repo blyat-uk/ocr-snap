@@ -32,6 +32,20 @@ def test_engine_effective_long_side_auto_no_cuda(qapp) -> None:
     assert engine.effective_long_side == 1600
 
 
+def test_build_kwargs_disables_mkldnn_on_cpu(qapp) -> None:
+    """paddlepaddle 3.3.x raises NotImplementedError from its PIR oneDNN
+    executor on the PP-OCRv5 detection models, so CPU runs must opt out."""
+    engine = OCREngine(OCRPerfSettings(device="cpu"))
+    assert engine._build_kwargs(corrections=False)["enable_mkldnn"] is False
+
+
+def test_build_kwargs_omits_mkldnn_on_gpu(qapp) -> None:
+    """oneDNN is a CPU-only backend; the kwarg has no business on GPU runs."""
+    engine = OCREngine(OCRPerfSettings(device="auto"))
+    engine._resolved_device = "gpu"
+    assert "enable_mkldnn" not in engine._build_kwargs(corrections=False)
+
+
 class _FakeOCR:
     def __init__(self) -> None:
         self.calls: list[dict] = []

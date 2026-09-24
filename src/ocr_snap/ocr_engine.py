@@ -190,8 +190,15 @@ class OCREngine(QObject):
             use_textline_orientation=corrections,
             device=self._resolved_device,
         )
-        if self._resolved_device == "cpu" and self._perf.paddle_cpu_threads > 0:
-            kwargs["cpu_threads"] = self._perf.paddle_cpu_threads
+        if self._resolved_device == "cpu":
+            # paddlepaddle 3.3.x cannot lower the PP-OCRv5 detection models
+            # through its PIR oneDNN executor — the first predict() raises
+            # NotImplementedError on a pir::ArrayAttribute<pir::DoubleAttribute>
+            # op attribute. oneDNN is on by default for CPU inference, so opt
+            # out until upstream fixes it (PaddlePaddle/Paddle#77340).
+            kwargs["enable_mkldnn"] = False
+            if self._perf.paddle_cpu_threads > 0:
+                kwargs["cpu_threads"] = self._perf.paddle_cpu_threads
         return kwargs
 
     def _build_ocr(self, *, corrections: bool) -> object:
