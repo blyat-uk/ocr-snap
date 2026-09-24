@@ -61,74 +61,49 @@ side by side.*
 *Load multiple images and switch between them using the thumbnail gallery. Each image
 retains its own OCR results, zoom level, and selections.*
 
-## Requirements
+## Download
 
-- Python 3.12 (Paddle currently requires `>=3.12,<3.13`)
-- Optional: a CUDA-capable GPU for faster OCR -- install with the `[gpu]` extra
-  (see [GPU support](#gpu-support-optional)). CPU works out of the box.
-- Optional: a [DeepL API key](https://www.deepl.com/pro-api) (free tier available)
-  for automatic translation -- enter it in **Settings** at runtime.
+Grab the latest build for your OS from
+[Releases](https://github.com/blyat-uk/ocr-snap/releases/latest):
 
-## Installation
+| OS | File |
+|---|---|
+| Windows 10/11 (x64) | `ocr-snap-vX.Y.Z-win.exe` (installer, no admin rights needed) or `-win.zip` (portable) |
+| macOS 14.5+ (Apple Silicon) | `ocr-snap-vX.Y.Z-mac.dmg` |
+| Linux x86_64 (glibc 2.34+) | `ocr-snap-vX.Y.Z-linux.AppImage` or `-linux.tar.gz` (portable) |
 
-### Linux
+Each download is a self-contained Python runtime with the app and every
+dependency except the OCR engine. On first start OCR Snap installs PaddlePaddle
+into your user data folder: the CUDA build when it finds an NVIDIA GPU with a
+recent enough driver (it checks that the GPU build actually works, and falls
+back to the CPU build if not), the CPU build otherwise. Run it with
+`--setup-engine` (or use the "OCR engine setup" shortcut) to switch later.
 
-```bash
-# Clone the repository
-git clone https://codeberg.org/BuGiPoP/ocr-snap.git
-cd ocr-snap
+The builds are not code-signed: on Windows, SmartScreen may ask you to confirm
+(More info → Run anyway); on macOS, open the app once with right-click → Open.
 
-# Create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+## Running from source
 
-# Install the package
-pip install -e .
-```
-
-### Windows
-
-```powershell
-# Clone the repository
-git clone https://codeberg.org/BuGiPoP/ocr-snap.git
-cd ocr-snap
-
-# Create and activate a virtual environment
-python -m venv .venv
-.venv\Scripts\activate
-
-# Install the package
-pip install -e .
-```
-
-### macOS
+Requires Python 3.12 (Paddle currently requires `>=3.12,<3.13`).
 
 ```bash
-# Clone the repository
-git clone https://codeberg.org/BuGiPoP/ocr-snap.git
+git clone https://github.com/blyat-uk/ocr-snap.git
 cd ocr-snap
 
-# Create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv               # Windows: python -m venv .venv
+source .venv/bin/activate           # Windows: .venv\Scripts\activate
 
-# Install the package
-pip install -e .
+pip install -e '.[ocr]'             # CPU
+# or
+pip install -e '.[ocr-gpu]'         # NVIDIA GPU (CUDA build of PaddlePaddle)
 ```
 
-### GPU support (optional)
+From source, OCR Snap uses whichever Paddle the environment has and never
+installs one itself. It auto-detects CUDA at startup; you can force CPU from
+**Settings → OCR engine → Device** if a low-VRAM GPU causes crashes.
 
-The default install runs PaddleOCR on CPU. To enable CUDA-backed inference,
-install the GPU extra after the base install:
-
-```bash
-pip install -e '.[gpu]'
-```
-
-This pulls `paddlepaddle-gpu` in addition to the CPU runtime. OCR Snap
-auto-detects CUDA at startup; if a GPU is found it will be used, otherwise it
-falls back to CPU. You can also force CPU from **Settings → OCR engine → Device**
-if a low-VRAM GPU causes crashes.
+A [DeepL API key](https://www.deepl.com/pro-api) (free tier available) is
+optional; enter it in **Settings** to translate results.
 
 ## Settings
 
@@ -164,20 +139,10 @@ changes apply immediately.
 
 ## Usage
 
-With the virtual environment activated:
+From a source checkout, with the virtual environment activated:
 
 ```bash
-ocr-snap
-```
-
-Or run directly without activating the environment:
-
-```bash
-# Linux / macOS
-.venv/bin/python -m ocr_snap
-
-# Windows
-.venv\Scripts\python -m ocr_snap
+ocr-snap                            # or: python -m ocr_snap
 ```
 
 ### How to use
@@ -198,24 +163,24 @@ Or run directly without activating the environment:
    to enter your DeepL key, switch performance tier, or change the OCR model
    and device. See the [Settings](#settings) section above for details.
 
+## Building the release bundles
+
+`packaging/build.py` builds the artifacts for the OS it runs on (stdlib only,
+any Python 3.11+): a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
+interpreter with the pinned dependencies (`packaging/requirements-bundle.txt`,
+`packaging/constraints-bundle.txt`), the app's sources, and native launchers —
+an AppImage and tarball on Linux, an Inno Setup installer and zip on Windows
+(needs MSVC and Inno Setup 6), a signed-ad-hoc `.app` in a `.dmg` on macOS.
+
+```bash
+python packaging/build.py                       # artifacts into dist/
+python packaging/build.py run -- --self-test    # run the built bundle
+```
+
+Pushing a `vX.Y.Z` tag that matches `src/ocr_snap/version.py` makes CI run the
+tests, build all three, smoke-test each (engine install and a real OCR run
+included) and publish the release.
+
 ## License
 
-MIT License
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+MIT — see [LICENSE](LICENSE).
