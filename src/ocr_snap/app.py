@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import sys
 import traceback
 
@@ -37,7 +38,19 @@ class _InstallWorker(QThread):
             self.finished_err.emit(traceback.format_exc())
 
 
+def _paddle_importable() -> bool:
+    """True when paddle already resolves on ``sys.path``."""
+    return importlib.util.find_spec("paddle") is not None
+
+
 def _run_first_run_install() -> bool:
+    if _paddle_importable():
+        # Source checkout with the ocr/ocr-gpu extra installed. The runtime
+        # dir holds whichever flavor _build_info names — CPU for every build
+        # but linux-gpu/windows-gpu — so prepending it would shadow the
+        # environment's own paddle and silently downgrade a GPU install.
+        return True
+
     target_dir = default_runtime_dir()
     # Fast path: already installed. Still call ensure_paddle_installed so
     # sys.path gets the prepend.
