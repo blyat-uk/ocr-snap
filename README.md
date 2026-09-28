@@ -72,15 +72,34 @@ Grab the latest build for your OS from
 | macOS 14.5+ (Apple Silicon) | `ocr-snap-vX.Y.Z-mac.dmg` |
 | Linux x86_64 (glibc 2.34+) | `ocr-snap-vX.Y.Z-linux.AppImage` or `-linux.tar.gz` (portable) |
 
+Each release lists every file and what it is for, plus `SHA256SUMS.txt` to
+verify them against.
+
+### First run
+
 Each download is a self-contained Python runtime with the app and every
 dependency except the OCR engine. On first start OCR Snap installs PaddlePaddle
 into your user data folder: the CUDA build when it finds an NVIDIA GPU with a
-recent enough driver (it checks that the GPU build actually works, and falls
-back to the CPU build if not), the CPU build otherwise. Run it with
-`--setup-engine` (or use the "OCR engine setup" shortcut) to switch later.
+recent enough driver (2–5.5 GB to download, up to 8 GB on disk; it checks that
+the GPU build actually works, and falls back to the CPU build if not), the CPU
+build otherwise (about 0.2 GB). Run it with `--setup-engine` (or use the
+"OCR engine setup" shortcut) to switch later.
 
-The builds are not code-signed: on Windows, SmartScreen may ask you to confirm
-(More info → Run anyway); on macOS, open the app once with right-click → Open.
+| OS | Engine folder |
+|---|---|
+| Windows | `%LOCALAPPDATA%\ocr-snap` |
+| macOS | `~/Library/Application Support/ocr-snap` |
+| Linux | `~/.local/share/ocr-snap` |
+
+### Platform notes
+
+- **Windows:** the installer is not code-signed; SmartScreen may ask you to
+  confirm (More info → Run anyway).
+- **macOS:** the app is not notarized. Open it once with right-click → Open,
+  or allow it under System Settings → Privacy & Security, or run
+  `xattr -dr com.apple.quarantine "/Applications/OCR Snap.app"`.
+- **Linux:** needs an X11 or Wayland desktop; on X11 install `libxcb-cursor0`
+  if the window does not open.
 
 ## Running from source
 
@@ -179,7 +198,9 @@ python packaging/build.py run -- --self-test    # run the built bundle
 
 Pushing a `vX.Y.Z` tag that matches `src/ocr_snap/version.py` makes CI run the
 tests, build all three, smoke-test each (engine install and a real OCR run
-included) and publish the release.
+included) and publish the release. Its notes are the downloads table and the
+commits since the previous tag, nothing else, so anything a user needs to know
+goes in this README.
 
 ## License
 
