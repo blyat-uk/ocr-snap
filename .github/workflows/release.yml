@@ -201,24 +201,13 @@ jobs:
           sha256sum ocr-snap-v* > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      # The release page is the Downloads table and the changelog, nothing
+      # The release page is the changelog, then the Downloads table, nothing
       # else. First run and platform notes live in README.md.
       - name: Release notes
         env:
           TAG: ${{ github.ref_name }}
         run: |
           cat > notes.md <<EOF
-          ## Downloads
-
-          | File | For |
-          |---|---|
-          | \`ocr-snap-$TAG-win.exe\` | Windows 10/11 (x64). Installs for you only, no admin rights needed |
-          | \`ocr-snap-$TAG-win.zip\` | Windows 10/11 (x64), portable |
-          | \`ocr-snap-$TAG-mac.dmg\` | macOS 14.5+ (Apple Silicon) |
-          | \`ocr-snap-$TAG-linux.AppImage\` | Linux x86_64 (glibc 2.34+) |
-          | \`ocr-snap-$TAG-linux.tar.gz\` | Linux x86_64 (glibc 2.34+), portable |
-          | \`SHA256SUMS.txt\` | SHA-256 checksums of every file above |
-
           ## Changelog
 
           EOF
@@ -229,6 +218,19 @@ jobs:
           git log --no-merges --format='- %s (%h)' "${prev:+$prev..}$TAG" \
             | grep -Ev '^- ([Rr]elease( v?[0-9][^ ]*)?|chore\(release\): .*) \([0-9a-f]+\)$' >> notes.md \
             || echo "- No changes." >> notes.md
+          cat >> notes.md <<EOF
+
+          ## Downloads
+
+          | File | For |
+          |---|---|
+          | \`ocr-snap-$TAG-win.exe\` | Windows 10/11 (x64). Installs for you only, no admin rights needed |
+          | \`ocr-snap-$TAG-win.zip\` | Windows 10/11 (x64), portable |
+          | \`ocr-snap-$TAG-mac.dmg\` | macOS 14.5+ (Apple Silicon) |
+          | \`ocr-snap-$TAG-linux.AppImage\` | Linux x86_64 (glibc 2.34+) |
+          | \`ocr-snap-$TAG-linux.tar.gz\` | Linux x86_64 (glibc 2.34+), portable |
+          | \`SHA256SUMS.txt\` | SHA-256 checksums of every file above |
+          EOF
           cat notes.md
 
       - uses: softprops/action-gh-release@v2
